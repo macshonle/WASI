@@ -298,3 +298,104 @@ Each proposal generates:
 
 - **v0.2.0**: Uses older `preview2/` directory structure. All WIT packages must be passed together.
 - **v0.2.1+**: Uses modern `proposals/*/wit/` structure with `deps.toml` for dependency management.
+
+## Full Build Workflow
+
+The Makefile provides targets for a complete development cycle: clean, build, test, and create distribution packages.
+
+### 1. Full Clean
+
+Remove all generated files (bindings, test artifacts, distribution):
+
+```bash
+# Clean everything (bindings + tests + dist)
+make clean && make dist-clean
+
+# Or individually:
+make clean          # Remove build/ directory (bindings, objects, test binaries)
+make dist-clean     # Remove dist/ directory
+make clean-deps     # Remove fetched WIT dependencies from proposals/*/wit/deps/
+make clean-wit-cache # Remove version-specific WIT cache
+```
+
+### 2. Full Build and Test
+
+Build all artifacts and run the complete test suite:
+
+```bash
+# One-time setup (downloads WASI SDK and Wasmtime)
+make setup
+
+# Build everything: bindings + unit tests + comparison tests + capstone tests
+make build
+
+# Run all tests with unified pass/fail summary
+make test
+
+# Or run tests in safe mode (non-destructive filesystem operations only)
+make test-safe
+```
+
+The `make build` target:
+1. Generates v0.2.0 C bindings from WIT files
+2. Compiles WASI implementation sources (`src/wasi/*.c`)
+3. Compiles platform-specific code (`src/wasi/platform/{darwin,linux}.c`)
+4. Builds unit test binary
+5. Builds comparison tests (native + WASI WebAssembly)
+6. Builds capstone tests (native + WASI WebAssembly)
+
+### 3. Create Distribution Package
+
+Package artifacts for use in MLIR/LLVM compiler projects:
+
+```bash
+# Create distribution directory
+make dist
+
+# Create distribution + tarball
+make dist-tarball
+
+# Clean distribution
+make dist-clean
+```
+
+The distribution package (`dist/wasi-c-runtime-0.2.0/`) contains:
+- `wit/` - WIT interface definitions for MLIR/LLVM processing
+- `src/wasi/` - C implementation sources
+- `build/c-bindings/` - Generated binding headers
+- `include/` - Public headers
+- `cmake/` - CMake find_package integration
+
+### Complete Workflow Example
+
+```bash
+# Start fresh
+make clean && make dist-clean
+
+# Build and test
+make setup          # One-time: install WASI SDK + Wasmtime
+make build          # Generate bindings + compile everything
+make test           # Run all test suites
+
+# Create distribution for external use
+make dist-tarball   # Creates dist/wasi-c-runtime-0.2.0.tar.gz
+```
+
+### Using the Distribution
+
+**CMake integration:**
+```cmake
+list(APPEND CMAKE_PREFIX_PATH "/path/to/dist/wasi-c-runtime-0.2.0")
+find_package(WasiCRuntime REQUIRED)
+
+add_library(wasi_runtime STATIC ${WasiCRuntime_SOURCES})
+target_include_directories(wasi_runtime PUBLIC ${WasiCRuntime_INCLUDE_DIRS})
+```
+
+**Manual build:**
+```bash
+cd dist/wasi-c-runtime-0.2.0
+gcc -c -std=c11 src/wasi/*.c
+gcc -c -std=c11 src/wasi/platform/darwin.c  # or linux.c
+ar rcs libwasi_runtime.a *.o
+```

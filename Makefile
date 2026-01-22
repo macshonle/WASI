@@ -26,6 +26,12 @@ BUILD_DIR := build
 BINDINGS_DIR := $(BUILD_DIR)/c-bindings
 WIT_CACHE_DIR := $(BUILD_DIR)/wit-cache
 
+# Distribution configuration
+DIST_DIR := dist
+WASI_DIST_VERSION := 0.2.0
+DIST_NAME := wasi-c-runtime-$(WASI_DIST_VERSION)
+DIST_ROOT := $(DIST_DIR)/$(DIST_NAME)
+
 # Proposals and their worlds (for current repo structure)
 # Format: proposal:world
 PROPOSALS := \
@@ -282,6 +288,11 @@ help:
 	@echo "  v0.2.0            - Generate bindings from WASI v0.2.0"
 	@echo "  v0.2.X            - Generate bindings from any version (0.2.1-0.2.9)"
 	@echo ""
+	@echo "Distribution Targets:"
+	@echo "  dist              - Create distribution package for MLIR/LLVM integration"
+	@echo "  dist-tarball      - Create dist + tarball archive"
+	@echo "  dist-clean        - Remove distribution directory"
+	@echo ""
 	@echo "Other Targets:"
 	@echo "  deps              - Fetch WIT dependencies only"
 	@echo "  validate          - Validate all WIT files"
@@ -290,6 +301,7 @@ help:
 	@echo ""
 	@echo "Output:"
 	@echo "  $(BINDINGS_DIR)/       - Generated C bindings"
+	@echo "  $(DIST_DIR)/           - Distribution package"
 	@echo ""
 	@echo "Example:"
 	@echo "  make setup        # One-time setup"
@@ -679,5 +691,24 @@ check-bindings: v0.2.0
 		$(CC) -fsyntax-only -c "$$dir"/*.h 2>&1 || exit 1; \
 	done
 	@echo "All bindings compile successfully."
+
+# ============================================================================
+# Distribution Package
+# ============================================================================
+
+.PHONY: dist
+dist: v0.2.0
+	@./scripts/create-dist.sh "$(DIST_ROOT)" "$(WIT_CACHE_DIR)" "$(BINDINGS_DIR)" "$(WASI_DIST_VERSION)"
+
+.PHONY: dist-tarball
+dist-tarball: dist
+	@echo "Creating tarball..."
+	@cd $(DIST_DIR) && tar -czf $(DIST_NAME).tar.gz $(DIST_NAME)
+	@echo "Created: $(DIST_DIR)/$(DIST_NAME).tar.gz"
+
+.PHONY: dist-clean
+dist-clean:
+	@rm -rf $(DIST_DIR)
+	@echo "Distribution cleaned."
 
 .DEFAULT_GOAL := all
