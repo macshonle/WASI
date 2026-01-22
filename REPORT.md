@@ -5,14 +5,16 @@ against Wasmtime's WASI Preview 2 implementation.
 
 ## Executive Summary
 
-Our native C implementation of WASI v0.2.0 passes all 50 unit tests and demonstrates
+Our native C implementation of WASI v0.2.0 passes all 62 unit tests and demonstrates
 behavioral compatibility with Wasmtime's reference implementation for core functionality.
 The comparison testing identified several expected differences due to WASI's sandboxed,
 virtualized nature, as well as some implementation-specific behaviors.
 
 **Key Findings:**
 - ✅ Core functionality (random, clocks, filesystem operations, sockets) works correctly on both platforms
-- ✅ Test pass rates: Native 100% (26/26), Wasmtime 96% (25/26, 1 expected failure)
+- ✅ Unit test pass rate: 62/62 (100%)
+- ✅ Comparison test pass rate: Native 26/26 (100%), Wasmtime 26/26 (100%)
+- ✅ Capstone integration tests: 26/26 pass on both platforms
 - ⚠️ Several behavioral differences exist due to WASI sandboxing (documented below)
 - ⚠️ Type constant values differ between POSIX and WASI ABI
 
@@ -30,12 +32,37 @@ virtualized nature, as well as some implementation-specific behaviors.
 
 ### Test Summary
 
+#### Unit Tests (Native)
+
+| Module | Tests | Status |
+|--------|-------|--------|
+| Random | 8 | ✅ PASS |
+| I/O | 7 | ✅ PASS |
+| Clocks | 8 | ✅ PASS |
+| CLI | 8 | ✅ PASS |
+| Filesystem | 9 | ✅ PASS |
+| Sockets | 10 | ✅ PASS |
+| Error Cases | 12 | ✅ PASS |
+| **Total** | **62** | **✅ 100%** |
+
+#### Comparison Tests (Native vs Wasmtime)
+
 | Test Suite | Native Linux | Wasmtime WASI P2 | Notes |
 |------------|--------------|------------------|-------|
 | Random | 5/5 PASS | 5/5 PASS | Identical behavior |
 | Clocks | 5/5 PASS | 5/5 PASS | Different base times (expected) |
 | Filesystem | 7/7 PASS | 7/7 PASS | Different virtualization |
-| Environment | 9/9 PASS | 8/9 PASS* | *Env vars need `--env` flag |
+| Environment | 9/9 PASS | 9/9 PASS | Requires `--env` flag for WASI |
+| **Total** | **26/26** | **26/26** | |
+
+#### Capstone Integration Tests
+
+| Test | Tests | Native | Wasmtime | Notes |
+|------|-------|--------|----------|-------|
+| Original | 12 | ✅ PASS | ✅ PASS | Combined workflow |
+| Pipeline | 7 | ✅ PASS | ✅ PASS | Data processing |
+| Tree | 7 | ✅ PASS | ✅ PASS | Recursive directory ops |
+| **Total** | **26** | **26/26** | **26/26** | Property-based validation |
 
 ### Detailed Findings by Module
 
@@ -245,28 +272,18 @@ WASI:
   st_mode & 0777 : 000
 ```
 
-## Conclusion
+## 6. Capstone Integration Tests
 
-Our WASI v0.2.0 C implementation demonstrates strong compatibility with Wasmtime's
-reference implementation. The observed differences are due to:
+**Status:** ✅ All 26 tests pass on both platforms
 
-1. **WASI's ABI design** (different constant values)
-2. **Security sandboxing** (permission bits, environment isolation)
-3. **Virtualization** (inode numbers, CWD mapping)
+Three comprehensive capstone tests demonstrate the WASI API working together in realistic
+scenarios. All tests run on both native C and Wasmtime with property-based validation
+to handle non-deterministic elements.
 
-All of these are intentional design decisions in WASI Preview 2 and do not indicate
-bugs in either implementation. Applications should use portable APIs and avoid
-relying on platform-specific behaviors.
+### 6.1 Original Capstone Test (12 tests)
 
-## 6. Capstone Integration Test
-
-**Status:** ✅ Both platforms pass all 12 tests
-
-A comprehensive capstone test was created to demonstrate a large portion of the WASI API
-working together. This test creates a directory structure, writes files, reads them back,
-uses clocks, and validates all operations work identically on both platforms.
-
-### Test Coverage
+Creates a directory structure, writes files, reads them back, uses clocks, and validates
+all operations work identically on both platforms.
 
 | Category | Tests | Native | WASI |
 |----------|-------|--------|------|
@@ -276,51 +293,99 @@ uses clocks, and validates all operations work identically on both platforms.
 | Combined Workflow | 1 | PASS | PASS |
 | **Total** | **12** | **12/12** | **12/12** |
 
-### Test Details
+### 6.2 Pipeline Capstone Test (7 tests)
 
-**Filesystem Tests:**
-- `stat_directory` - Verify directory stat works
-- `stat_file` - Verify file stat returns correct size
-- `read_directory` - List directory contents using portable type checking
-- `file_read_write` - Create, write, read, and verify file contents
-- `file_seek` - Test lseek with SEEK_SET, SEEK_END, SEEK_CUR
-- `file_truncate` - Test ftruncate to resize files
+Data processing pipeline demonstrating random generation, file I/O transformations,
+seeking, and timing measurements.
 
-**Clock Tests:**
-- `clock_gettime_realtime` - Verify wall clock returns valid timestamp
-- `clock_gettime_monotonic` - Verify monotonic time advances
-- `nanosleep` - Verify sleep duration is accurate
+| Test | Description | Native | WASI |
+|------|-------------|--------|------|
+| `random_generation` | Generate random data, validate distribution | PASS | PASS |
+| `file_write_read` | Write and read back data | PASS | PASS |
+| `data_transform` | Transform data (XOR encryption) | PASS | PASS |
+| `seek_operations` | Multiple seek positions | PASS | PASS |
+| `timing` | Measure operation timing | PASS | PASS |
+| `statistics` | Compute mean/variance | PASS | PASS |
+| `environment_check` | Check environment access | PASS | PASS |
 
-**Environment Tests:**
-- `environment_vars` - Access environment variables
-- `stdio_operations` - Test stdout/stderr output
+**Platform Variances (expected):**
+- Timing: Native ~4.5ms vs Wasmtime ~5.0ms
+- Environment variables: Native ~67 vs WASI 1-2 (sandbox)
 
-**Combined Workflow:**
-- Creates timestamped log file using clock, pseudo-random data, and environment info
+### 6.3 Tree Capstone Test (7 tests)
 
-### Expected Differences in Output
+Recursive directory operations demonstrating deep nesting, traversal, and cleanup.
 
-The diff between native and WASI outputs shows expected differences:
-- Platform string ("Native C" vs "WASI (WebAssembly)")
-- Exact timestamps (differ at runtime)
-- Environment variable count (67 on native vs 1 in sandboxed WASI)
-- TEST_MODE variable ("not set" vs "wasi")
+| Test | Description | Native | WASI |
+|------|-------------|--------|------|
+| `create_tree` | Create 3-level nested structure | PASS | PASS |
+| `traverse_tree` | Recursively enumerate all nodes | PASS | PASS |
+| `sorted_listing` | List and sort directory contents | PASS | PASS |
+| `file_content_validation` | Verify file contents at each level | PASS | PASS |
+| `stat_operations` | Stat files and directories | PASS | PASS |
+| `deep_path_access` | Access deeply nested paths | PASS | PASS |
+| `delete_tree` | Recursively delete entire tree | PASS | PASS |
 
-All 12 tests pass on both platforms, confirming behavioral compatibility.
+**Platform Variances (expected):**
+- Permission bits: Native returns 755/644, WASI returns 0 (sandbox limitation)
+- Directory listing order: Non-deterministic (handled via sorting)
 
-### Running the Capstone Test
+### Running the Capstone Tests
 
 ```bash
-# Build and run comparison
-make capstone-test
+# Run all capstone tests
+make capstone-all
 
-# Run individually
-make capstone-build
-./build/capstone/capstone_native
-wasmtime run --dir=. --env=TEST_MODE=wasi build/capstone/capstone.wasm
+# Run individual tests
+make capstone-test      # Original
+make capstone-pipeline  # Pipeline
+make capstone-tree      # Tree
 ```
 
-## 7. Portability Tools
+## 7. Safe Mode Variant
+
+**Status:** ✅ Available via `WASI_SAFE_MODE` build flag
+
+A safe mode variant is available for running programs in restricted environments where
+destructive filesystem operations should be blocked.
+
+### Building Safe Mode
+
+```bash
+make test-safe           # Build and run tests in safe mode
+make test-safe-compare   # Compare regular vs safe mode results
+```
+
+### Blocked Operations
+
+When compiled with `-DWASI_SAFE_MODE`, the following operations return `READ_ONLY` errors:
+
+| Operation | Function | Safe Mode Behavior |
+|-----------|----------|-------------------|
+| Write to file | `write()`, `write_via_stream()` | Returns `READ_ONLY` |
+| Append to file | `append_via_stream()` | Returns `READ_ONLY` |
+| Create directory | `create_directory_at()` | Returns `READ_ONLY` |
+| Create file | `open_at()` with `O_CREAT` | Returns `READ_ONLY` |
+| Delete file | `unlink_file_at()` | Returns `READ_ONLY` |
+| Delete directory | `remove_directory_at()` | Returns `READ_ONLY` |
+| Rename | `rename_at()` | Returns `READ_ONLY` |
+| Create symlink | `symlink_at()` | Returns `READ_ONLY` |
+| Create hard link | `link_at()` | Returns `READ_ONLY` |
+| Truncate | `set_size()` | Returns `READ_ONLY` |
+| Set times | `set_times()`, `set_times_at()` | Returns `READ_ONLY` |
+| Sync | `sync()`, `sync_data()` | No-op (success) |
+
+### Test Results
+
+| Mode | Tests Passed | Tests Failed | Notes |
+|------|--------------|--------------|-------|
+| Regular | 62/62 | 0 | Full functionality |
+| Safe | 51/62 | 11 | Expected failures for write operations |
+
+The 11 failures in safe mode are expected because those tests attempt destructive operations
+that are intentionally blocked.
+
+## 8. Portability Tools
 
 ### Compatibility Header
 
@@ -372,6 +437,9 @@ relying on platform-specific behaviors.
 
 ---
 
-*Report generated: 2026-01-22*
-*Test infrastructure: tests/wasm-comparison/, tests/capstone/*
+*Report updated: 2026-01-22*
+*Unit tests: 62 tests in tests/*.c*
+*Comparison tests: tests/wasm-comparison/*
+*Capstone tests: tests/capstone/*
 *Compatibility header: include/wasi_compat.h*
+*Implementation: src/wasi/*.c (common.c, io.c, random.c, clocks.c, filesystem.c, sockets.c, cli.c)*

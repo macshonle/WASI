@@ -539,7 +539,7 @@ comparison-test: comparison-build
 		echo "Native:"; \
 		$(COMPARISON_NATIVE)/$$base 2>&1 | tail -3; \
 		echo "Wasmtime:"; \
-		$(WASMTIME) run --dir=. $(COMPARISON_WASI)/$$base.wasm 2>&1 | tail -3; \
+		$(WASMTIME) run --dir=. --env=WASI_TEST_VAR=1 $(COMPARISON_WASI)/$$base.wasm 2>&1 | tail -3; \
 	done
 
 # ============================================================================

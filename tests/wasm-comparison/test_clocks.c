@@ -5,6 +5,8 @@
  * when compiled for WebAssembly.
  */
 
+#define _POSIX_C_SOURCE 199309L
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>

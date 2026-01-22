@@ -34,6 +34,7 @@
 #include <time.h>
 
 #include "platform/platform.h"
+#include "common.h"
 
 /* Include the generated bindings header */
 #include "../../build/c-bindings/filesystem/imports.h"
@@ -41,20 +42,6 @@
 /* External declarations from io.c */
 extern int32_t wasi_io_streams_create_input_stream(int fd, bool owns_fd);
 extern int32_t wasi_io_streams_create_output_stream(int fd, bool owns_fd);
-
-/* ============================================================================
- * Helper: cabi_realloc
- * ============================================================================
- */
-__attribute__((__weak__))
-void *cabi_realloc(void *ptr, size_t old_size, size_t align, size_t new_size) {
-    (void)old_size;
-    (void)align;
-    if (new_size == 0) return (void*)align;
-    void *ret = realloc(ptr, new_size);
-    if (!ret) abort();
-    return ret;
-}
 
 /* ============================================================================
  * Handle Management for Descriptors

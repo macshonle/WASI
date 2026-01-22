@@ -23,23 +23,10 @@
 #include <time.h>
 
 #include "platform/platform.h"
+#include "common.h"
 
 /* Include the generated bindings header */
 #include "../../build/c-bindings/io/imports.h"
-
-/* ============================================================================
- * Helper: cabi_realloc (required by generated bindings)
- * ============================================================================
- */
-__attribute__((__weak__))
-void *cabi_realloc(void *ptr, size_t old_size, size_t align, size_t new_size) {
-    (void)old_size;
-    (void)align;
-    if (new_size == 0) return (void*)align;
-    void *ret = realloc(ptr, new_size);
-    if (!ret) abort();
-    return ret;
-}
 
 /* ============================================================================
  * Handle Management
