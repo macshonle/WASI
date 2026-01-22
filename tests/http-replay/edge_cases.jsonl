@@ -1,0 +1,10 @@
+{"id": "empty_body", "request": {"method": "GET", "url": "http://example.com/empty"}, "response": {"status": 200, "headers": {"Content-Length": "0"}}}
+{"id": "redirect_301", "request": {"method": "GET", "url": "http://example.com/old-path"}, "response": {"status": 301, "headers": {"Location": "http://example.com/new-path"}}}
+{"id": "redirect_302", "request": {"method": "GET", "url": "http://example.com/temp-redirect"}, "response": {"status": 302, "headers": {"Location": "http://example.com/target"}}}
+{"id": "multi_value_header", "request": {"method": "GET", "url": "http://example.com/multi-header"}, "response": {"status": 200, "headers": {"Set-Cookie": ["session=abc123; Path=/", "tracking=xyz789; Path=/; HttpOnly"], "Content-Type": "text/plain"}, "body": "T0s="}}
+{"id": "case_insensitive_headers", "request": {"method": "GET", "url": "http://example.com/case-test", "headers": {"ACCEPT": "application/json", "content-TYPE": "text/plain"}}, "response": {"status": 200, "headers": {"CONTENT-type": "application/json"}, "body": "e30="}}
+{"id": "binary_body", "request": {"method": "GET", "url": "http://example.com/binary"}, "response": {"status": 200, "headers": {"Content-Type": "application/octet-stream", "Content-Length": "16"}, "body": "AAECAwQFBgcICQoLDA0ODw=="}}
+{"id": "unicode_body", "request": {"method": "GET", "url": "http://example.com/unicode"}, "response": {"status": 200, "headers": {"Content-Type": "text/plain; charset=utf-8"}, "body": "SGVsbG8g5LiW55WMIPCfkYs="}}
+{"id": "special_status_100", "request": {"method": "POST", "url": "http://example.com/expect-continue", "headers": {"Expect": "100-continue"}}, "response": {"status": 100, "headers": {}}}
+{"id": "special_status_204", "request": {"method": "DELETE", "url": "http://example.com/no-content"}, "response": {"status": 204, "headers": {}}}
+{"id": "special_status_304", "request": {"method": "GET", "url": "http://example.com/cached", "headers": {"If-None-Match": "\"abc123\""}}, "response": {"status": 304, "headers": {"ETag": "\"abc123\""}}}

@@ -19,6 +19,7 @@ extern int run_clocks_tests(void);
 extern int run_filesystem_tests(void);
 extern int run_sockets_tests(void);
 extern int run_cli_tests(void);
+extern int run_http_tests(void);
 extern void run_error_tests(void);
 extern int get_error_tests_passed(void);
 extern int get_error_tests_failed(void);
@@ -46,6 +47,7 @@ static test_suite_t test_suites[] = {
     {"cli",        run_cli_tests},
     {"filesystem", run_filesystem_tests},
     {"sockets",    run_sockets_tests},
+    {"http",       run_http_tests},
     {"errors",     run_errors_wrapper},
     {NULL, NULL}  /* Sentinel */
 };

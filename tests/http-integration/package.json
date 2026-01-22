@@ -1,0 +1,12 @@
+{
+  "name": "wasi-http-integration-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HTTP integration tests for WASI HTTP implementation",
+  "scripts": {
+    "mock-server": "node mock_server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

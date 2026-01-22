@@ -1,0 +1,10 @@
+{"id": "dns_error", "request": {"method": "GET", "url": "http://nonexistent.invalid/"}, "error": {"code": "dns_error", "message": "DNS resolution failed"}}
+{"id": "connection_refused", "request": {"method": "GET", "url": "http://localhost:59999/"}, "error": {"code": "connection_refused", "message": "Connection refused"}}
+{"id": "connection_timeout", "request": {"method": "GET", "url": "http://example.com/timeout"}, "error": {"code": "connection_timeout", "message": "Connection timed out"}}
+{"id": "read_timeout", "request": {"method": "GET", "url": "http://example.com/slow-response"}, "error": {"code": "connection_read_timeout", "message": "Read timed out waiting for response"}}
+{"id": "not_found", "request": {"method": "GET", "url": "http://example.com/not-found"}, "response": {"status": 404, "headers": {"Content-Type": "text/plain"}, "body": "Tm90IEZvdW5k"}}
+{"id": "server_error", "request": {"method": "GET", "url": "http://example.com/error"}, "response": {"status": 500, "headers": {"Content-Type": "text/plain"}, "body": "SW50ZXJuYWwgU2VydmVyIEVycm9y"}}
+{"id": "bad_gateway", "request": {"method": "GET", "url": "http://example.com/proxy-error"}, "response": {"status": 502, "headers": {"Content-Type": "text/plain"}, "body": "QmFkIEdhdGV3YXk="}}
+{"id": "service_unavailable", "request": {"method": "GET", "url": "http://example.com/maintenance"}, "response": {"status": 503, "headers": {"Content-Type": "text/plain", "Retry-After": "300"}, "body": "U2VydmljZSBVbmF2YWlsYWJsZQ=="}}
+{"id": "invalid_response", "request": {"method": "GET", "url": "http://example.com/malformed"}, "error": {"code": "http_response_incomplete", "message": "Response body truncated"}}
+{"id": "tls_error", "request": {"method": "GET", "url": "https://self-signed.example.com/"}, "error": {"code": "tls_certificate_error", "message": "Certificate verification failed"}}

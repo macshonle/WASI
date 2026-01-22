@@ -18,9 +18,9 @@ WIT_CACHE_DIR="${2:?Missing WIT_CACHE_DIR}"
 BINDINGS_DIR="${3:?Missing BINDINGS_DIR}"
 WASI_VERSION="${4:-0.2.0}"
 
-# Proposals to include (no http - not implemented)
-PROPOSALS="io random clocks filesystem sockets cli"
-IMPL_MODULES="common io random clocks filesystem sockets cli"
+# Proposals to include
+PROPOSALS="io random clocks filesystem sockets cli http"
+IMPL_MODULES="common io random clocks filesystem sockets cli http"
 
 echo "Creating distribution: $DIST_ROOT"
 
@@ -202,6 +202,9 @@ filesystem, sockets (depend on io, clocks)
     |
     v
 cli (depends on io)
+    |
+    v
+http (depends on io, clocks, cli)
 ```
 
 ## Platform Support
