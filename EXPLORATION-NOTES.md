@@ -240,4 +240,61 @@ wasm-tools component wit proposals/cli/wit
 
 # Generate documentation
 wit-bindgen markdown proposals/cli/wit -w command --html-in-md --all-features --out-dir proposals/cli
+
+# Generate C bindings (uses Makefile)
+make v0.2.0
 ```
+
+## Generating C Bindings
+
+A Makefile is provided to generate C bindings from the WIT files. This is useful for implementing WASI in C.
+
+### Usage
+
+```bash
+# Generate C bindings for WASI v0.2.0
+make v0.2.0
+
+# Generate bindings from current HEAD (latest)
+make
+
+# Generate bindings for a specific proposal
+make proposal-io
+make proposal-cli
+
+# Clean generated files
+make clean
+
+# Show all available targets
+make help
+```
+
+### Output Structure
+
+```
+build/c-bindings/
+├── io/           # wasi:io interfaces
+│   ├── imports.c
+│   ├── imports.h
+│   └── imports_component_type.o
+├── random/       # wasi:random interfaces
+├── clocks/       # wasi:clocks interfaces
+├── filesystem/   # wasi:filesystem interfaces
+├── sockets/      # wasi:sockets interfaces
+├── cli/          # wasi:cli interfaces
+│   ├── cli_imports.c/h    # CLI imports only
+│   └── command.c/h        # Full command world (imports + run export)
+└── http/         # wasi:http interfaces (proxy world)
+```
+
+### Generated Files
+
+Each proposal generates:
+- `*.h` - C header with type definitions, function declarations
+- `*.c` - C implementation stubs and helper functions
+- `*_component_type.o` - Object file containing component type information
+
+### Version Differences
+
+- **v0.2.0**: Uses older `preview2/` directory structure. All WIT packages must be passed together.
+- **v0.2.1+**: Uses modern `proposals/*/wit/` structure with `deps.toml` for dependency management.
