@@ -9,10 +9,11 @@
 #   cargo install wasm-tools wit-deps-cli wit-bindgen-cli
 #
 # Usage:
-#   make              - Generate all C bindings (uses current WIT files)
-#   make v0.2.0       - Checkout v0.2.0 tag and generate bindings from that version
+#   make setup        - Install WASI SDK and Wasmtime
+#   make build        - Build everything (bindings + tests)
+#   make test         - Run all tests with unified summary
+#   make test-safe    - Run tests in safe mode (non-destructive only)
 #   make clean        - Remove generated files
-#   make deps         - Fetch WIT dependencies only
 #   make help         - Show this help
 #
 # Note: WASI v0.2.0 uses a different directory structure (preview2/) than
@@ -127,8 +128,6 @@ v0.2.0: check-tools
 	@$(WIT_BINDGEN) c $(V020_WIT_DIRS) -w wasi:http/proxy@0.2.0 --out-dir $(BINDINGS_DIR)/http
 	@echo ""
 	@echo "C bindings for WASI v0.2.0 generated in $(BINDINGS_DIR)/"
-	@echo "Generated files:"
-	@find $(BINDINGS_DIR) -name '*.h' -o -name '*.c' | sort
 
 # v0.2.1+ use the modern proposals/*/wit/ structure with deps.toml
 .PHONY: v0.2.1 v0.2.2 v0.2.3 v0.2.4 v0.2.5 v0.2.6 v0.2.7 v0.2.8 v0.2.9
@@ -161,8 +160,6 @@ v0.2.1 v0.2.2 v0.2.3 v0.2.4 v0.2.5 v0.2.6 v0.2.7 v0.2.8 v0.2.9: check-tools-with
 	done
 	@echo ""
 	@echo "C bindings for WASI $@ generated in $(BINDINGS_DIR)/"
-	@echo "Generated files:"
-	@find $(BINDINGS_DIR) -name '*.h' -o -name '*.c' | sort
 
 # ============================================================================
 # Working with current repo (HEAD)
@@ -273,44 +270,31 @@ help:
 	@echo "Prerequisites:"
 	@echo "  cargo install wasm-tools wit-deps-cli wit-bindgen-cli"
 	@echo ""
-	@echo "Targets:"
-	@echo "  all               - Generate C bindings from current WIT files (default)"
+	@echo "Main Targets:"
+	@echo "  setup             - Install WASI SDK and Wasmtime (one-time setup)"
+	@echo "  build             - Build everything (bindings + all test binaries)"
+	@echo "  test              - Run all tests with unified pass/fail summary"
+	@echo "  test-safe         - Run tests in safe mode (non-destructive only)"
+	@echo "  clean             - Remove all generated files"
+	@echo "  help              - Show this help"
+	@echo ""
+	@echo "Version-specific Targets:"
 	@echo "  v0.2.0            - Generate bindings from WASI v0.2.0"
-	@echo "  v0.2.X            - Generate bindings from any released version (0.2.1-0.2.9)"
+	@echo "  v0.2.X            - Generate bindings from any version (0.2.1-0.2.9)"
+	@echo ""
+	@echo "Other Targets:"
 	@echo "  deps              - Fetch WIT dependencies only"
 	@echo "  validate          - Validate all WIT files"
-	@echo "  proposal-X        - Generate bindings for a single proposal (e.g., proposal-io)"
-	@echo "  compile           - Compile WASI C implementation (requires bindings)"
-	@echo "  test              - Build and run all tests"
-	@echo "  test-io           - Run only I/O tests"
-	@echo "  test-random       - Run only random tests"
-	@echo "  test-safe         - Build and run tests in safe mode (non-destructive only)"
-	@echo "  test-safe-compare - Compare regular vs safe mode test results"
-	@echo "  comparison-test   - Run native vs Wasmtime comparison tests"
+	@echo "  proposal-X        - Generate bindings for a single proposal"
 	@echo "  check-bindings    - Verify generated bindings compile"
-	@echo "  setup-wasi-sdk    - Download WASI SDK to tools/ directory"
-	@echo "  setup-wasmtime    - Install Wasmtime runtime"
-	@echo "  setup-wasm-tools  - Setup both WASI SDK and Wasmtime"
-	@echo "  clean             - Remove all generated files"
-	@echo "  clean-deps        - Remove fetched WIT dependencies"
-	@echo "  help              - Show this help"
 	@echo ""
 	@echo "Output:"
 	@echo "  $(BINDINGS_DIR)/       - Generated C bindings"
-	@echo "    io/               - wasi:io interfaces (streams, poll, error)"
-	@echo "    random/           - wasi:random interfaces"
-	@echo "    clocks/           - wasi:clocks interfaces (monotonic, wall)"
-	@echo "    filesystem/       - wasi:filesystem interfaces"
-	@echo "    sockets/          - wasi:sockets interfaces (tcp, udp)"
-	@echo "    cli/              - wasi:cli interfaces (stdin, stdout, env, args)"
-	@echo "    http/             - wasi:http interfaces (client, server)"
 	@echo ""
 	@echo "Example:"
-	@echo "  make v0.2.0           # Generate v0.2.0 bindings"
-	@echo "  make proposal-io      # Generate just the io bindings"
-	@echo ""
-	@echo "Note: v0.2.0 uses the old 'preview2/' structure. v0.2.1+ use the"
-	@echo "      modern 'proposals/*/wit/' structure with wit-deps."
+	@echo "  make setup        # One-time setup"
+	@echo "  make build        # Build everything"
+	@echo "  make test         # Run all tests"
 
 # List generated files
 .PHONY: list
@@ -319,11 +303,11 @@ list:
 		echo "Generated files in $(BINDINGS_DIR):"; \
 		find $(BINDINGS_DIR) -type f | sort; \
 	else \
-		echo "No bindings generated yet. Run 'make' first."; \
+		echo "No bindings generated yet. Run 'make build' first."; \
 	fi
 
 # ============================================================================
-# C Implementation Build (for later use)
+# C Implementation Build
 # ============================================================================
 
 # Compiler settings
@@ -416,33 +400,243 @@ $(OBJ_DIR)/test_%.o: $(TEST_DIR)/%.c | $(OBJ_DIR)
 	@echo "  CC $<"
 	@$(CC) $(CFLAGS_DEBUG) -DTEST_RUNNER_MODE -c $< -o $@
 
-# Build and run tests
-.PHONY: test
-test: v0.2.0 $(OBJ_DIR) $(TEST_OBJS) $(WASI_OBJS) $(PLATFORM_OBJS)
+# Build unit test binary
+.PHONY: build-unit-tests
+build-unit-tests: v0.2.0 $(OBJ_DIR) $(TEST_OBJS) $(WASI_OBJS) $(PLATFORM_OBJS)
 	@echo "Linking test binary..."
 	@$(CC) $(CFLAGS_DEBUG) -o $(TEST_BIN) $(TEST_OBJS) $(WASI_OBJS) $(PLATFORM_OBJS)
-	@echo "Running tests..."
-	@$(TEST_BIN)
 
-# Run individual test suites
-.PHONY: test-io test-random test-clocks test-cli test-filesystem test-sockets
-test-io: test
-	@$(TEST_BIN) io
+# ============================================================================
+# Setup (One-time installation)
+# ============================================================================
 
-test-random: test
-	@$(TEST_BIN) random
+WASI_SDK_TARBALL := wasi-sdk-$(WASI_SDK_FULL_VERSION)-$(WASI_SDK_ARCH)-$(WASI_SDK_OS).tar.gz
+WASI_SDK_URL := https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-$(WASI_SDK_VERSION)/$(WASI_SDK_TARBALL)
+TOOLS_DIR := $(CURDIR)/tools
 
-test-clocks: test
-	@$(TEST_BIN) clocks
+# Unified setup target - installs all required tools
+.PHONY: setup
+setup:
+	@echo "Setting up development environment..."
+	@echo ""
+	@# Install WASI SDK
+	@echo "[1/2] WASI SDK $(WASI_SDK_FULL_VERSION) for $(WASI_SDK_ARCH)-$(WASI_SDK_OS)"
+	@mkdir -p $(TOOLS_DIR)
+	@if [ -d "$(TOOLS_DIR)/wasi-sdk" ]; then \
+		echo "  Already installed at $(TOOLS_DIR)/wasi-sdk"; \
+		$(TOOLS_DIR)/wasi-sdk/bin/clang --version | head -1 | sed 's/^/  /'; \
+	else \
+		echo "  Downloading $(WASI_SDK_TARBALL)..."; \
+		curl -L -o "$(TOOLS_DIR)/$(WASI_SDK_TARBALL)" "$(WASI_SDK_URL)"; \
+		echo "  Extracting..."; \
+		tar xzf "$(TOOLS_DIR)/$(WASI_SDK_TARBALL)" -C "$(TOOLS_DIR)"; \
+		mv "$(TOOLS_DIR)/wasi-sdk-$(WASI_SDK_FULL_VERSION)-$(WASI_SDK_ARCH)-$(WASI_SDK_OS)" "$(TOOLS_DIR)/wasi-sdk"; \
+		rm "$(TOOLS_DIR)/$(WASI_SDK_TARBALL)"; \
+		echo "  Installed at $(TOOLS_DIR)/wasi-sdk"; \
+	fi
+	@echo ""
+	@# Install Wasmtime
+	@echo "[2/2] Wasmtime"
+	@if command -v wasmtime >/dev/null 2>&1; then \
+		echo "  Already installed:"; \
+		wasmtime --version | sed 's/^/  /'; \
+	elif [ -x "$(HOME)/.wasmtime/bin/wasmtime" ]; then \
+		echo "  Already installed at $(HOME)/.wasmtime/bin/wasmtime:"; \
+		$(HOME)/.wasmtime/bin/wasmtime --version | sed 's/^/  /'; \
+	else \
+		echo "  Installing..."; \
+		curl https://wasmtime.dev/install.sh -sSf | bash; \
+		echo "  Installed."; \
+	fi
+	@echo ""
+	@echo "Setup complete. Run 'make build' to build everything."
 
-test-cli: test
-	@$(TEST_BIN) cli
+# ============================================================================
+# WASI SDK and Wasmtime Configuration
+# ============================================================================
 
-test-filesystem: test
-	@$(TEST_BIN) filesystem
+WASI_SDK_PATH ?= $(WASI_SDK_PATH_DEFAULT)
+# Find wasmtime: check PATH first, then common install locations
+WASMTIME_DEFAULT := $(or \
+    $(shell which wasmtime 2>/dev/null),\
+    $(wildcard $(HOME)/.wasmtime/bin/wasmtime),\
+    $(wildcard /opt/homebrew/bin/wasmtime),\
+    wasmtime)
+WASMTIME ?= $(WASMTIME_DEFAULT)
+CC_WASI := $(WASI_SDK_PATH)/bin/wasm32-wasip2-clang
 
-test-sockets: test
-	@$(TEST_BIN) sockets
+# ============================================================================
+# Comparison Tests
+# ============================================================================
+
+COMPARISON_DIR := $(TEST_DIR)/wasm-comparison
+COMPARISON_BUILD := $(BUILD_DIR)/wasm-comparison
+COMPARISON_NATIVE := $(COMPARISON_BUILD)/native
+COMPARISON_WASI := $(COMPARISON_BUILD)/wasi
+
+COMPARISON_SRCS := test_random.c test_clocks.c test_filesystem.c test_env.c test_details.c
+COMPARISON_NATIVE_BINS := $(patsubst %.c,$(COMPARISON_NATIVE)/%,$(COMPARISON_SRCS))
+COMPARISON_WASI_WASMS := $(patsubst %.c,$(COMPARISON_WASI)/%.wasm,$(COMPARISON_SRCS))
+
+$(COMPARISON_NATIVE):
+	@mkdir -p $@
+
+$(COMPARISON_NATIVE)/%: $(COMPARISON_DIR)/%.c | $(COMPARISON_NATIVE)
+	@echo "  CC [native] $<"
+	@$(CC) $(CFLAGS) $< -o $@
+
+$(COMPARISON_WASI):
+	@mkdir -p $@
+
+$(COMPARISON_WASI)/%.wasm: $(COMPARISON_DIR)/%.c | $(COMPARISON_WASI)
+	@echo "  CC [wasi]   $<"
+	@$(CC_WASI) $(CFLAGS) $< -o $@
+
+.PHONY: build-comparison
+build-comparison: $(COMPARISON_NATIVE_BINS) $(COMPARISON_WASI_WASMS)
+
+# ============================================================================
+# Capstone Tests
+# ============================================================================
+
+CAPSTONE_DIR := $(TEST_DIR)/capstone
+CAPSTONE_BUILD := $(BUILD_DIR)/capstone
+
+$(CAPSTONE_BUILD):
+	@mkdir -p $@
+
+# Build capstone tests (native + WASI)
+# Note: Use -O0 to avoid wasm-opt (Binaryen) which doesn't support wasm components yet
+.PHONY: build-capstone
+build-capstone: $(CAPSTONE_BUILD)
+	@echo "Building capstone tests..."
+	@$(CC) -Wall -Wextra -std=c11 -g -O0 \
+		$(CAPSTONE_DIR)/capstone_test.c \
+		-o $(CAPSTONE_BUILD)/capstone_native
+	@$(CC) -Wall -Wextra -std=c11 -g -O0 \
+		$(CAPSTONE_DIR)/capstone_pipeline.c \
+		-o $(CAPSTONE_BUILD)/pipeline_native -lm
+	@$(CC) -Wall -Wextra -std=c11 -g -O0 \
+		$(CAPSTONE_DIR)/capstone_tree.c \
+		-o $(CAPSTONE_BUILD)/tree_native
+	@$(CC_WASI) -Wall -Wextra -O0 \
+		$(CAPSTONE_DIR)/capstone_wasm.c \
+		-o $(CAPSTONE_BUILD)/capstone.wasm
+	@$(CC_WASI) -Wall -Wextra -O0 \
+		$(CAPSTONE_DIR)/capstone_pipeline.c \
+		-o $(CAPSTONE_BUILD)/pipeline.wasm
+	@$(CC_WASI) -Wall -Wextra -O0 \
+		$(CAPSTONE_DIR)/capstone_tree.c \
+		-o $(CAPSTONE_BUILD)/tree.wasm
+
+# ============================================================================
+# Unified Build Target
+# ============================================================================
+
+.PHONY: build
+build: v0.2.0 build-unit-tests build-comparison build-capstone
+	@echo ""
+	@echo "Build complete."
+	@echo "  Bindings:    $(BINDINGS_DIR)/"
+	@echo "  Unit tests:  $(TEST_BIN)"
+	@echo "  Comparison:  $(COMPARISON_BUILD)/"
+	@echo "  Capstone:    $(CAPSTONE_BUILD)/"
+
+# ============================================================================
+# Unified Test Target
+# ============================================================================
+
+# Test results file for aggregation
+TEST_RESULTS := $(CURDIR)/$(BUILD_DIR)/test_results.txt
+CAPSTONE_TESTENV := $(CURDIR)/$(CAPSTONE_BUILD)/testenv
+
+.PHONY: test
+test: build
+	@rm -f $(TEST_RESULTS)
+	@mkdir -p $(CAPSTONE_TESTENV)
+	@total_pass=0; total_fail=0; \
+	\
+	echo ""; \
+	echo "Running unit tests..."; \
+	$(CURDIR)/$(TEST_BIN) 2>&1 | tee $(CURDIR)/$(BUILD_DIR)/unit_test.log; \
+	unit_pass=$$(grep -oE 'passed: [0-9]+' $(CURDIR)/$(BUILD_DIR)/unit_test.log | grep -oE '[0-9]+' | awk '{s+=$$1} END {print s+0}'); \
+	unit_fail=$$(grep -oE 'failed: [0-9]+' $(CURDIR)/$(BUILD_DIR)/unit_test.log | grep -oE '[0-9]+' | awk '{s+=$$1} END {print s+0}'); \
+	total_pass=$$((total_pass + unit_pass)); \
+	total_fail=$$((total_fail + unit_fail)); \
+	echo "unit: $$unit_pass passed, $$unit_fail failed" >> $(TEST_RESULTS); \
+	\
+	echo ""; \
+	echo "Running comparison tests..."; \
+	comp_pass=0; comp_fail=0; \
+	for base in $(basename $(COMPARISON_SRCS)); do \
+		echo "  $$base: native"; \
+		$(CURDIR)/$(COMPARISON_NATIVE)/$$base > $(CURDIR)/$(BUILD_DIR)/comp_native_$$base.log 2>&1; \
+		echo "  $$base: wasi"; \
+		$(WASMTIME) run --dir=. --env=WASI_TEST_VAR=1 $(CURDIR)/$(COMPARISON_WASI)/$$base.wasm > $(CURDIR)/$(BUILD_DIR)/comp_wasi_$$base.log 2>&1; \
+		native_fail=$$(grep -oE '[0-9]+ failed' $(CURDIR)/$(BUILD_DIR)/comp_native_$$base.log | grep -oE '[0-9]+' || echo 0); \
+		wasi_fail=$$(grep -oE '[0-9]+ failed' $(CURDIR)/$(BUILD_DIR)/comp_wasi_$$base.log | grep -oE '[0-9]+' || echo 0); \
+		if [ "$$native_fail" = "0" ] && [ "$$wasi_fail" = "0" ]; then \
+			comp_pass=$$((comp_pass + 1)); \
+		else \
+			comp_fail=$$((comp_fail + 1)); \
+			echo "    FAIL: $$base"; \
+		fi; \
+	done; \
+	total_pass=$$((total_pass + comp_pass)); \
+	total_fail=$$((total_fail + comp_fail)); \
+	echo "comparison: $$comp_pass passed, $$comp_fail failed" >> $(TEST_RESULTS); \
+	\
+	echo ""; \
+	echo "Running capstone tests..."; \
+	cap_pass=0; cap_fail=0; \
+	\
+	echo "  capstone: native"; \
+	cd $(CAPSTONE_TESTENV) && $(CURDIR)/$(CAPSTONE_BUILD)/capstone_native > $(CURDIR)/$(CAPSTONE_BUILD)/capstone_native.log 2>&1; \
+	echo "  capstone: wasi"; \
+	cd $(CAPSTONE_TESTENV) && $(WASMTIME) run --dir=. --env=TEST_MODE=wasi $(CURDIR)/$(CAPSTONE_BUILD)/capstone.wasm > $(CURDIR)/$(CAPSTONE_BUILD)/capstone_wasi.log 2>&1; \
+	native_p=$$(grep -oE '[0-9]+ passed' $(CURDIR)/$(CAPSTONE_BUILD)/capstone_native.log | grep -oE '[0-9]+' || echo 0); \
+	native_f=$$(grep -oE '[0-9]+ failed' $(CURDIR)/$(CAPSTONE_BUILD)/capstone_native.log | grep -oE '[0-9]+' || echo 0); \
+	wasi_p=$$(grep -oE '[0-9]+ passed' $(CURDIR)/$(CAPSTONE_BUILD)/capstone_wasi.log | grep -oE '[0-9]+' || echo 0); \
+	wasi_f=$$(grep -oE '[0-9]+ failed' $(CURDIR)/$(CAPSTONE_BUILD)/capstone_wasi.log | grep -oE '[0-9]+' || echo 0); \
+	cap_pass=$$((cap_pass + native_p + wasi_p)); \
+	cap_fail=$$((cap_fail + native_f + wasi_f)); \
+	\
+	echo "  pipeline: native"; \
+	cd $(CAPSTONE_TESTENV) && $(CURDIR)/$(CAPSTONE_BUILD)/pipeline_native > $(CURDIR)/$(CAPSTONE_BUILD)/pipeline_native.log 2>&1; \
+	echo "  pipeline: wasi"; \
+	cd $(CAPSTONE_TESTENV) && $(WASMTIME) run --dir=. --env=TEST_VAR=wasi_test $(CURDIR)/$(CAPSTONE_BUILD)/pipeline.wasm > $(CURDIR)/$(CAPSTONE_BUILD)/pipeline_wasi.log 2>&1; \
+	native_p=$$(grep -oE '[0-9]+ passed' $(CURDIR)/$(CAPSTONE_BUILD)/pipeline_native.log | grep -oE '[0-9]+' || echo 0); \
+	native_f=$$(grep -oE '[0-9]+ failed' $(CURDIR)/$(CAPSTONE_BUILD)/pipeline_native.log | grep -oE '[0-9]+' || echo 0); \
+	wasi_p=$$(grep -oE '[0-9]+ passed' $(CURDIR)/$(CAPSTONE_BUILD)/pipeline_wasi.log | grep -oE '[0-9]+' || echo 0); \
+	wasi_f=$$(grep -oE '[0-9]+ failed' $(CURDIR)/$(CAPSTONE_BUILD)/pipeline_wasi.log | grep -oE '[0-9]+' || echo 0); \
+	cap_pass=$$((cap_pass + native_p + wasi_p)); \
+	cap_fail=$$((cap_fail + native_f + wasi_f)); \
+	\
+	echo "  tree: native"; \
+	cd $(CAPSTONE_TESTENV) && $(CURDIR)/$(CAPSTONE_BUILD)/tree_native > $(CURDIR)/$(CAPSTONE_BUILD)/tree_native.log 2>&1; \
+	echo "  tree: wasi"; \
+	cd $(CAPSTONE_TESTENV) && $(WASMTIME) run --dir=. $(CURDIR)/$(CAPSTONE_BUILD)/tree.wasm > $(CURDIR)/$(CAPSTONE_BUILD)/tree_wasi.log 2>&1; \
+	native_p=$$(grep -oE '[0-9]+ passed' $(CURDIR)/$(CAPSTONE_BUILD)/tree_native.log | grep -oE '[0-9]+' || echo 0); \
+	native_f=$$(grep -oE '[0-9]+ failed' $(CURDIR)/$(CAPSTONE_BUILD)/tree_native.log | grep -oE '[0-9]+' || echo 0); \
+	wasi_p=$$(grep -oE '[0-9]+ passed' $(CURDIR)/$(CAPSTONE_BUILD)/tree_wasi.log | grep -oE '[0-9]+' || echo 0); \
+	wasi_f=$$(grep -oE '[0-9]+ failed' $(CURDIR)/$(CAPSTONE_BUILD)/tree_wasi.log | grep -oE '[0-9]+' || echo 0); \
+	cap_pass=$$((cap_pass + native_p + wasi_p)); \
+	cap_fail=$$((cap_fail + native_f + wasi_f)); \
+	\
+	total_pass=$$((total_pass + cap_pass)); \
+	total_fail=$$((total_fail + cap_fail)); \
+	echo "capstone: $$cap_pass passed, $$cap_fail failed" >> $(TEST_RESULTS); \
+	\
+	echo ""; \
+	echo "Test Summary:"; \
+	cat $(TEST_RESULTS) | while read line; do echo "  $$line"; done; \
+	echo ""; \
+	if [ $$total_fail -eq 0 ]; then \
+		echo "PASSED: $$total_pass tests passed, 0 failed"; \
+	else \
+		echo "FAILED: $$total_pass passed, $$total_fail failed"; \
+		exit 1; \
+	fi
 
 # ============================================================================
 # Safe Mode Tests (non-destructive operations only)
@@ -482,310 +676,16 @@ $(SAFE_OBJ_DIR)/test_%.o: $(TEST_DIR)/%.c | $(SAFE_OBJ_DIR)
 test-safe: v0.2.0 $(SAFE_OBJ_DIR) $(TEST_OBJS_SAFE) $(WASI_OBJS_SAFE) $(PLATFORM_OBJS_SAFE)
 	@echo "Linking safe mode test binary..."
 	@$(CC) $(CFLAGS_SAFE) -o $(TEST_BIN_SAFE) $(TEST_OBJS_SAFE) $(WASI_OBJS_SAFE) $(PLATFORM_OBJS_SAFE)
+	@echo ""
 	@echo "Running tests in SAFE MODE (non-destructive operations only)..."
 	@echo "Note: Tests requiring destructive filesystem operations will fail."
 	@echo ""
 	@$(TEST_BIN_SAFE) || true
 
-# Compare regular vs safe mode test results
-.PHONY: test-safe-compare
-test-safe-compare: test test-safe
-	@echo ""
-	@echo "==============================================="
-	@echo "Safe Mode Comparison Report"
-	@echo "==============================================="
-	@echo ""
-	@echo "Running regular tests..."
-	@$(TEST_BIN) 2>&1 | tee $(BUILD_DIR)/test_regular.log || true
-	@echo ""
-	@echo "Running safe mode tests..."
-	@$(TEST_BIN_SAFE) 2>&1 | tee $(BUILD_DIR)/test_safe.log || true
-	@echo ""
-	@echo "==============================================="
-	@echo "Results Comparison"
-	@echo "==============================================="
-	@echo ""
-	@echo "Regular mode results:"
-	@grep -E "passed:|failed:" $(BUILD_DIR)/test_regular.log || true
-	@echo ""
-	@echo "Safe mode results:"
-	@grep -E "passed:|failed:" $(BUILD_DIR)/test_safe.log || true
-	@echo ""
-	@echo "Differences (tests expected to fail in safe mode):"
-	@diff $(BUILD_DIR)/test_regular.log $(BUILD_DIR)/test_safe.log 2>/dev/null || echo "See above for differences"
-
 # ============================================================================
-# WASI SDK Setup (for comparison tests)
+# Check bindings compile
 # ============================================================================
 
-WASI_SDK_TARBALL := wasi-sdk-$(WASI_SDK_FULL_VERSION)-$(WASI_SDK_ARCH)-$(WASI_SDK_OS).tar.gz
-WASI_SDK_URL := https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-$(WASI_SDK_VERSION)/$(WASI_SDK_TARBALL)
-TOOLS_DIR := $(CURDIR)/tools
-
-.PHONY: setup-wasi-sdk
-setup-wasi-sdk:
-	@echo "Setting up WASI SDK $(WASI_SDK_FULL_VERSION) for $(WASI_SDK_ARCH)-$(WASI_SDK_OS)..."
-	@mkdir -p $(TOOLS_DIR)
-	@if [ -d "$(TOOLS_DIR)/wasi-sdk" ]; then \
-		echo "WASI SDK already installed at $(TOOLS_DIR)/wasi-sdk"; \
-		$(TOOLS_DIR)/wasi-sdk/bin/clang --version | head -1; \
-	else \
-		echo "Downloading $(WASI_SDK_TARBALL)..."; \
-		curl -L -o "$(TOOLS_DIR)/$(WASI_SDK_TARBALL)" "$(WASI_SDK_URL)"; \
-		echo "Extracting..."; \
-		tar xzf "$(TOOLS_DIR)/$(WASI_SDK_TARBALL)" -C "$(TOOLS_DIR)"; \
-		mv "$(TOOLS_DIR)/wasi-sdk-$(WASI_SDK_FULL_VERSION)-$(WASI_SDK_ARCH)-$(WASI_SDK_OS)" "$(TOOLS_DIR)/wasi-sdk"; \
-		rm "$(TOOLS_DIR)/$(WASI_SDK_TARBALL)"; \
-		echo "WASI SDK installed at $(TOOLS_DIR)/wasi-sdk"; \
-		$(TOOLS_DIR)/wasi-sdk/bin/clang --version | head -1; \
-	fi
-
-.PHONY: setup-wasmtime
-setup-wasmtime:
-	@echo "Setting up Wasmtime..."
-	@if command -v wasmtime >/dev/null 2>&1; then \
-		echo "Wasmtime already installed:"; \
-		wasmtime --version; \
-	elif [ -x "$(HOME)/.wasmtime/bin/wasmtime" ]; then \
-		echo "Wasmtime already installed at $(HOME)/.wasmtime/bin/wasmtime:"; \
-		$(HOME)/.wasmtime/bin/wasmtime --version; \
-	else \
-		echo "Installing Wasmtime..."; \
-		curl https://wasmtime.dev/install.sh -sSf | bash; \
-		echo "Wasmtime installed."; \
-	fi
-
-.PHONY: setup-wasm-tools
-setup-wasm-tools: setup-wasi-sdk setup-wasmtime
-	@echo ""
-	@echo "WASM tools setup complete!"
-	@echo "  WASI SDK: $(TOOLS_DIR)/wasi-sdk"
-	@echo "  Wasmtime: $(HOME)/.wasmtime/bin/wasmtime"
-
-# ============================================================================
-# WASI Comparison Tests (Native vs Wasmtime)
-# ============================================================================
-
-WASI_SDK_PATH ?= $(WASI_SDK_PATH_DEFAULT)
-# Find wasmtime: check PATH first, then common install locations
-WASMTIME_DEFAULT := $(or \
-    $(shell which wasmtime 2>/dev/null),\
-    $(wildcard $(HOME)/.wasmtime/bin/wasmtime),\
-    $(wildcard /opt/homebrew/bin/wasmtime),\
-    wasmtime)
-WASMTIME ?= $(WASMTIME_DEFAULT)
-CC_WASI := $(WASI_SDK_PATH)/bin/wasm32-wasip2-clang
-
-COMPARISON_DIR := $(TEST_DIR)/wasm-comparison
-COMPARISON_BUILD := $(BUILD_DIR)/wasm-comparison
-COMPARISON_NATIVE := $(COMPARISON_BUILD)/native
-COMPARISON_WASI := $(COMPARISON_BUILD)/wasi
-
-COMPARISON_SRCS := test_random.c test_clocks.c test_filesystem.c test_env.c test_details.c
-COMPARISON_NATIVE_BINS := $(patsubst %.c,$(COMPARISON_NATIVE)/%,$(COMPARISON_SRCS))
-COMPARISON_WASI_WASMS := $(patsubst %.c,$(COMPARISON_WASI)/%.wasm,$(COMPARISON_SRCS))
-
-# Build comparison tests for native
-.PHONY: comparison-native
-comparison-native: $(COMPARISON_NATIVE_BINS)
-
-$(COMPARISON_NATIVE):
-	@mkdir -p $@
-
-$(COMPARISON_NATIVE)/%: $(COMPARISON_DIR)/%.c | $(COMPARISON_NATIVE)
-	@echo "  CC [native] $<"
-	@$(CC) $(CFLAGS) $< -o $@
-
-# Build comparison tests for WASI
-.PHONY: comparison-wasi
-comparison-wasi: $(COMPARISON_WASI_WASMS)
-
-$(COMPARISON_WASI):
-	@mkdir -p $@
-
-$(COMPARISON_WASI)/%.wasm: $(COMPARISON_DIR)/%.c | $(COMPARISON_WASI)
-	@echo "  CC [wasi]   $<"
-	@$(CC_WASI) $(CFLAGS) $< -o $@
-
-# Build both comparison test versions
-.PHONY: comparison-build
-comparison-build: comparison-native comparison-wasi
-
-# Run comparison tests
-.PHONY: comparison-test
-comparison-test: comparison-build
-	@echo ""
-	@echo "==============================================="
-	@echo "WASI Comparison Tests"
-	@echo "==============================================="
-	@for base in $(basename $(COMPARISON_SRCS)); do \
-		echo ""; \
-		echo "=== $$base ==="; \
-		echo "Native:"; \
-		$(COMPARISON_NATIVE)/$$base 2>&1 | tail -3; \
-		echo "Wasmtime:"; \
-		$(WASMTIME) run --dir=. --env=WASI_TEST_VAR=1 $(COMPARISON_WASI)/$$base.wasm 2>&1 | tail -3; \
-	done
-
-# ============================================================================
-# Capstone Integration Tests
-# ============================================================================
-
-CAPSTONE_DIR := $(TEST_DIR)/capstone
-CAPSTONE_BUILD := $(BUILD_DIR)/capstone
-
-$(CAPSTONE_BUILD):
-	@mkdir -p $@
-
-# Build native capstone tests only
-.PHONY: capstone-build-native
-capstone-build-native: $(CAPSTONE_BUILD)
-	@echo "Building capstone tests (native)..."
-	@$(CC) -Wall -Wextra -std=c11 -g -O0 \
-		$(CAPSTONE_DIR)/capstone_test.c \
-		-o $(CAPSTONE_BUILD)/capstone_native
-	@$(CC) -Wall -Wextra -std=c11 -g -O0 \
-		$(CAPSTONE_DIR)/capstone_pipeline.c \
-		-o $(CAPSTONE_BUILD)/pipeline_native -lm
-	@$(CC) -Wall -Wextra -std=c11 -g -O0 \
-		$(CAPSTONE_DIR)/capstone_tree.c \
-		-o $(CAPSTONE_BUILD)/tree_native
-
-# Build all capstone tests (native + WASI)
-# Note: Use -O0 to avoid wasm-opt (Binaryen) which doesn't support wasm components yet
-# See: https://github.com/WebAssembly/binaryen/issues/6728
-.PHONY: capstone-build
-capstone-build: capstone-build-native
-	@echo "Building capstone tests (wasi)..."
-	@$(CC_WASI) -Wall -Wextra -O0 \
-		$(CAPSTONE_DIR)/capstone_wasm.c \
-		-o $(CAPSTONE_BUILD)/capstone.wasm
-	@$(CC_WASI) -Wall -Wextra -O0 \
-		$(CAPSTONE_DIR)/capstone_pipeline.c \
-		-o $(CAPSTONE_BUILD)/pipeline.wasm
-	@$(CC_WASI) -Wall -Wextra -O0 \
-		$(CAPSTONE_DIR)/capstone_tree.c \
-		-o $(CAPSTONE_BUILD)/tree.wasm
-
-# Run native capstone tests only (no WASI/Wasmtime required)
-.PHONY: capstone-test-native
-capstone-test-native: capstone-build-native
-	@echo ""
-	@echo "==============================================="
-	@echo "Capstone Integration Tests (Native Only)"
-	@echo "==============================================="
-	@mkdir -p $(CAPSTONE_BUILD)/testenv
-	@echo ""
-	@echo "--- Running capstone_native ---"
-	@cd $(CAPSTONE_BUILD)/testenv && ../capstone_native
-	@echo ""
-	@echo "--- Running pipeline_native ---"
-	@cd $(CAPSTONE_BUILD)/testenv && ../pipeline_native
-	@echo ""
-	@echo "--- Running tree_native ---"
-	@cd $(CAPSTONE_BUILD)/testenv && ../tree_native
-	@echo ""
-	@echo "All native capstone tests complete."
-
-# Run original capstone test (native + WASI comparison)
-.PHONY: capstone-test
-capstone-test: capstone-build
-	@echo ""
-	@echo "==============================================="
-	@echo "Capstone Integration Test (Original)"
-	@echo "==============================================="
-	@echo ""
-	@mkdir -p $(CAPSTONE_BUILD)/testenv
-	@echo "Running native capstone test..." && \
-		cd $(CAPSTONE_BUILD)/testenv && ../capstone_native 2>&1 | tee $(CURDIR)/$(CAPSTONE_BUILD)/native.log && \
-		if [ -f "$(CURDIR)/$(CAPSTONE_BUILD)/capstone.wasm" ]; then \
-			echo ""; \
-			echo "Running Wasmtime capstone test..."; \
-			$(WASMTIME) run --dir=. --env=TEST_MODE=wasi ../capstone.wasm 2>&1 | tee $(CURDIR)/$(CAPSTONE_BUILD)/wasi.log; \
-			echo ""; \
-			echo "Comparing outputs..."; \
-			diff -u $(CURDIR)/$(CAPSTONE_BUILD)/native.log $(CURDIR)/$(CAPSTONE_BUILD)/wasi.log && echo "PASS: Outputs identical" || echo "DIFF: Outputs differ (see above)"; \
-		else \
-			echo ""; \
-			echo "Skipping Wasmtime test (WASI build not available)"; \
-		fi
-
-# Run capstone pipeline test
-.PHONY: capstone-pipeline
-capstone-pipeline: capstone-build
-	@echo ""
-	@echo "==============================================="
-	@echo "Capstone Test 2: Data Processing Pipeline"
-	@echo "==============================================="
-	@echo ""
-	@mkdir -p $(CAPSTONE_BUILD)/testenv
-	@echo "Running native pipeline test..."
-	@cd $(CAPSTONE_BUILD)/testenv && ../pipeline_native 2>&1 | tee ../pipeline_native.log
-	@echo ""
-	@echo "Running Wasmtime pipeline test..."
-	@cd $(CAPSTONE_BUILD)/testenv && $(WASMTIME) run --dir=. --env=TEST_VAR=wasi_test ../pipeline.wasm 2>&1 | tee ../pipeline_wasi.log
-	@echo ""
-	@echo "Comparing results (filtering non-deterministic values)..."
-	@grep -E "^\s*(PASS|FAIL|Results):" $(CAPSTONE_BUILD)/pipeline_native.log > $(CAPSTONE_BUILD)/pipeline_native_results.txt || true
-	@grep -E "^\s*(PASS|FAIL|Results):" $(CAPSTONE_BUILD)/pipeline_wasi.log > $(CAPSTONE_BUILD)/pipeline_wasi_results.txt || true
-	@diff -u $(CAPSTONE_BUILD)/pipeline_native_results.txt $(CAPSTONE_BUILD)/pipeline_wasi_results.txt && echo "PASS: Test results match" || echo "DIFF: Test results differ (see above)"
-
-# Run capstone tree test
-.PHONY: capstone-tree
-capstone-tree: capstone-build
-	@echo ""
-	@echo "==============================================="
-	@echo "Capstone Test 3: Recursive Directory Tree"
-	@echo "==============================================="
-	@echo ""
-	@mkdir -p $(CAPSTONE_BUILD)/testenv
-	@echo "Running native tree test..."
-	@cd $(CAPSTONE_BUILD)/testenv && ../tree_native 2>&1 | tee ../tree_native.log
-	@echo ""
-	@echo "Running Wasmtime tree test..."
-	@cd $(CAPSTONE_BUILD)/testenv && $(WASMTIME) run --dir=. ../tree.wasm 2>&1 | tee ../tree_wasi.log
-	@echo ""
-	@echo "Comparing results (filtering non-deterministic values)..."
-	@grep -E "^\s*(PASS|FAIL|Results):" $(CAPSTONE_BUILD)/tree_native.log > $(CAPSTONE_BUILD)/tree_native_results.txt || true
-	@grep -E "^\s*(PASS|FAIL|Results):" $(CAPSTONE_BUILD)/tree_wasi.log > $(CAPSTONE_BUILD)/tree_wasi_results.txt || true
-	@diff -u $(CAPSTONE_BUILD)/tree_native_results.txt $(CAPSTONE_BUILD)/tree_wasi_results.txt && echo "PASS: Test results match" || echo "DIFF: Test results differ (see above)"
-
-# Run all capstone tests
-.PHONY: capstone-all
-capstone-all: capstone-test capstone-pipeline capstone-tree
-	@echo ""
-	@echo "==============================================="
-	@echo "All Capstone Tests Complete"
-	@echo "==============================================="
-
-# ============================================================================
-# Unified Test Targets
-# ============================================================================
-
-# Run all unit tests
-.PHONY: test-all-unit
-test-all-unit: test
-	@echo "All unit tests complete."
-
-# Run all comparison tests
-.PHONY: test-all-comparison
-test-all-comparison: comparison-test
-	@echo "All comparison tests complete."
-
-# Run all capstone tests
-.PHONY: test-all-capstone
-test-all-capstone: capstone-all
-	@echo "All capstone tests complete."
-
-# Run ALL tests (unit + comparison + capstone)
-.PHONY: test-all
-test-all: test-all-unit test-all-comparison test-all-capstone
-	@echo ""
-	@echo "==============================================="
-	@echo "ALL TESTS COMPLETE"
-	@echo "==============================================="
-
-# Check that generated code compiles
 .PHONY: check-bindings
 check-bindings: v0.2.0
 	@echo "Checking that generated bindings compile..."
