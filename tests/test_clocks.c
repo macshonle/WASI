@@ -14,10 +14,8 @@
 /* Test framework macros */
 #define TEST(name) static void test_##name(void)
 #define RUN_TEST(name) do { \
-    printf("  Running %s... ", #name); \
-    fflush(stdout); \
     test_##name(); \
-    printf("PASS\n"); \
+    printf("  %s: PASS\n", #name); \
     tests_passed++; \
 } while(0)
 
@@ -166,9 +164,6 @@ int run_clocks_tests(void) {
     RUN_TEST(subscribe_instant);
     RUN_TEST(subscribe_duration);
     RUN_TEST(timer_becomes_ready);
-
-    printf("\nClocks tests passed: %d\n", tests_passed);
-    printf("Clocks tests failed: %d\n", tests_failed);
 
     return tests_failed;
 }

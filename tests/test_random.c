@@ -13,10 +13,8 @@
 /* Test framework macros */
 #define TEST(name) static void test_##name(void)
 #define RUN_TEST(name) do { \
-    printf("  Running %s... ", #name); \
-    fflush(stdout); \
     test_##name(); \
-    printf("PASS\n"); \
+    printf("  %s: PASS\n", #name); \
     tests_passed++; \
 } while(0)
 
@@ -177,9 +175,6 @@ int run_random_tests(void) {
     RUN_TEST(insecure_seed);
     RUN_TEST(random_distribution);
     RUN_TEST(random_bytes_large);
-
-    printf("\nRandom tests passed: %d\n", tests_passed);
-    printf("Random tests failed: %d\n", tests_failed);
 
     return tests_failed;
 }

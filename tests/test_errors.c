@@ -589,9 +589,6 @@ void run_error_tests(void) {
     test_mkdir_existing();
     test_truncate_extend();
     test_rename_nonexistent();
-
-    printf("\nError tests passed: %d\n", tests_passed);
-    printf("Error tests failed: %d\n", tests_failed);
 }
 
 int get_error_tests_passed(void) {

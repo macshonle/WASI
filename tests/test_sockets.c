@@ -14,10 +14,8 @@
 /* Test framework macros */
 #define TEST(name) static void test_##name(void)
 #define RUN_TEST(name) do { \
-    printf("  Running %s... ", #name); \
-    fflush(stdout); \
     test_##name(); \
-    printf("PASS\n"); \
+    printf("  %s: PASS\n", #name); \
     tests_passed++; \
 } while(0)
 
@@ -345,9 +343,6 @@ int run_sockets_tests(void) {
     RUN_TEST(udp_socket_options);
     RUN_TEST(dns_resolve_localhost);
     RUN_TEST(tcp_socket_subscribe);
-
-    printf("\nSockets tests passed: %d\n", tests_passed);
-    printf("Sockets tests failed: %d\n", tests_failed);
 
     return tests_failed;
 }

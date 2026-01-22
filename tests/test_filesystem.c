@@ -15,10 +15,8 @@
 /* Test framework macros */
 #define TEST(name) static void test_##name(void)
 #define RUN_TEST(name) do { \
-    printf("  Running %s... ", #name); \
-    fflush(stdout); \
     test_##name(); \
-    printf("PASS\n"); \
+    printf("  %s: PASS\n", #name); \
     tests_passed++; \
 } while(0)
 
@@ -371,9 +369,6 @@ int run_filesystem_tests(void) {
     RUN_TEST(open_read_file);
     RUN_TEST(descriptor_get_flags);
     RUN_TEST(is_same_object);
-
-    printf("\nFilesystem tests passed: %d\n", tests_passed);
-    printf("Filesystem tests failed: %d\n", tests_failed);
 
     return tests_failed;
 }

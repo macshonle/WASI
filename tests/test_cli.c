@@ -14,10 +14,8 @@
 /* Test framework macros */
 #define TEST(name) static void test_##name(void)
 #define RUN_TEST(name) do { \
-    printf("  Running %s... ", #name); \
-    fflush(stdout); \
     test_##name(); \
-    printf("PASS\n"); \
+    printf("  %s: PASS\n", #name); \
     tests_passed++; \
 } while(0)
 
@@ -162,7 +160,7 @@ TEST(write_to_stdout) {
     assert(budget > 0);
 
     /* Write a test message (it will appear in test output) */
-    uint8_t msg[] = "(test output) ";
+    uint8_t msg[] = "(test output)\n";
     cli_imports_list_u8_t contents = { msg, sizeof(msg) - 1 };
     ok = wasi_io_streams_method_output_stream_write(borrow, &contents, &err);
     assert(ok);
@@ -189,9 +187,6 @@ int run_cli_tests(void) {
     RUN_TEST(get_stderr);
     RUN_TEST(terminal_detection);
     RUN_TEST(write_to_stdout);
-
-    printf("\nCLI tests passed: %d\n", tests_passed);
-    printf("CLI tests failed: %d\n", tests_failed);
 
     return tests_failed;
 }

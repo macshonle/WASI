@@ -559,8 +559,8 @@ test: build
 	echo ""; \
 	echo "Running unit tests..."; \
 	$(CURDIR)/$(TEST_BIN) 2>&1 | tee $(CURDIR)/$(BUILD_DIR)/unit_test.log; \
-	unit_pass=$$(grep -oE 'passed: [0-9]+' $(CURDIR)/$(BUILD_DIR)/unit_test.log | grep -oE '[0-9]+' | awk '{s+=$$1} END {print s+0}'); \
-	unit_fail=$$(grep -oE 'failed: [0-9]+' $(CURDIR)/$(BUILD_DIR)/unit_test.log | grep -oE '[0-9]+' | awk '{s+=$$1} END {print s+0}'); \
+	unit_pass=$$(grep ': PASS' $(CURDIR)/$(BUILD_DIR)/unit_test.log 2>/dev/null | wc -l | tr -d ' '); \
+	unit_fail=$$(grep ': FAIL' $(CURDIR)/$(BUILD_DIR)/unit_test.log 2>/dev/null | wc -l | tr -d ' '); \
 	total_pass=$$((total_pass + unit_pass)); \
 	total_fail=$$((total_fail + unit_fail)); \
 	echo "unit: $$unit_pass passed, $$unit_fail failed" >> $(TEST_RESULTS); \

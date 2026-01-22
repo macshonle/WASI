@@ -15,10 +15,8 @@
 /* Test framework macros */
 #define TEST(name) static void test_##name(void)
 #define RUN_TEST(name) do { \
-    printf("  Running %s... ", #name); \
-    fflush(stdout); \
     test_##name(); \
-    printf("PASS\n"); \
+    printf("  %s: PASS\n", #name); \
     tests_passed++; \
 } while(0)
 
@@ -219,9 +217,6 @@ int run_io_tests(void) {
     RUN_TEST(output_stream_write);
     RUN_TEST(input_stream_read);
     RUN_TEST(stream_subscribe);
-
-    printf("\nI/O tests passed: %d\n", tests_passed);
-    printf("I/O tests failed: %d\n", tests_failed);
 
     return tests_failed;
 }

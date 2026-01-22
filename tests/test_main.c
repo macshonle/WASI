@@ -66,7 +66,6 @@ static void print_usage(const char *prog) {
 static int run_suite(const char *name) {
     for (int i = 0; test_suites[i].name != NULL; i++) {
         if (strcmp(test_suites[i].name, name) == 0) {
-            printf("\n=== Running %s tests ===\n", name);
             return test_suites[i].run();
         }
     }
@@ -77,9 +76,6 @@ static int run_suite(const char *name) {
 int main(int argc, char *argv[]) {
     /* Initialize CLI module for cli tests */
     wasi_cli_init(argc, argv);
-
-    printf("WASI Implementation Test Suite\n");
-    printf("==============================\n");
 
     int total_failures = 0;
 
@@ -99,25 +95,9 @@ int main(int argc, char *argv[]) {
         }
     } else {
         /* Run all suites */
-        int suites_run = 0;
         for (int i = 0; test_suites[i].name != NULL; i++) {
-            printf("\n=== Running %s tests ===\n", test_suites[i].name);
             total_failures += test_suites[i].run();
-            suites_run++;
         }
-
-        if (suites_run == 0) {
-            printf("\nNo test suites are currently enabled.\n");
-            printf("Implement tests and register them in test_main.c.\n");
-            return 0;
-        }
-    }
-
-    printf("\n==============================\n");
-    if (total_failures == 0) {
-        printf("All tests passed!\n");
-    } else {
-        printf("Tests failed: %d\n", total_failures);
     }
 
     return total_failures > 0 ? 1 : 0;
