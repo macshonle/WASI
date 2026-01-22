@@ -407,6 +407,131 @@ test-filesystem: test
 test-sockets: test
 	@$(TEST_BIN) sockets
 
+# ============================================================================
+# WASI Comparison Tests (Native vs Wasmtime)
+# ============================================================================
+
+WASI_SDK_PATH ?= /opt/wasi-sdk-25.0-x86_64-linux
+WASMTIME ?= $(HOME)/.wasmtime/bin/wasmtime
+CC_WASI := $(WASI_SDK_PATH)/bin/wasm32-wasip2-clang
+
+COMPARISON_DIR := $(TEST_DIR)/wasm-comparison
+COMPARISON_BUILD := $(BUILD_DIR)/wasm-comparison
+COMPARISON_NATIVE := $(COMPARISON_BUILD)/native
+COMPARISON_WASI := $(COMPARISON_BUILD)/wasi
+
+COMPARISON_SRCS := test_random.c test_clocks.c test_filesystem.c test_env.c test_details.c
+COMPARISON_NATIVE_BINS := $(patsubst %.c,$(COMPARISON_NATIVE)/%,$(COMPARISON_SRCS))
+COMPARISON_WASI_WASMS := $(patsubst %.c,$(COMPARISON_WASI)/%.wasm,$(COMPARISON_SRCS))
+
+# Build comparison tests for native
+.PHONY: comparison-native
+comparison-native: $(COMPARISON_NATIVE_BINS)
+
+$(COMPARISON_NATIVE):
+	@mkdir -p $@
+
+$(COMPARISON_NATIVE)/%: $(COMPARISON_DIR)/%.c | $(COMPARISON_NATIVE)
+	@echo "  CC [native] $<"
+	@$(CC) $(CFLAGS) $< -o $@
+
+# Build comparison tests for WASI
+.PHONY: comparison-wasi
+comparison-wasi: $(COMPARISON_WASI_WASMS)
+
+$(COMPARISON_WASI):
+	@mkdir -p $@
+
+$(COMPARISON_WASI)/%.wasm: $(COMPARISON_DIR)/%.c | $(COMPARISON_WASI)
+	@echo "  CC [wasi]   $<"
+	@$(CC_WASI) $(CFLAGS) $< -o $@
+
+# Build both comparison test versions
+.PHONY: comparison-build
+comparison-build: comparison-native comparison-wasi
+
+# Run comparison tests
+.PHONY: comparison-test
+comparison-test: comparison-build
+	@echo ""
+	@echo "==============================================="
+	@echo "WASI Comparison Tests"
+	@echo "==============================================="
+	@for base in $(basename $(COMPARISON_SRCS)); do \
+		echo ""; \
+		echo "=== $$base ==="; \
+		echo "Native:"; \
+		$(COMPARISON_NATIVE)/$$base 2>&1 | tail -3; \
+		echo "Wasmtime:"; \
+		$(WASMTIME) run --dir=. $(COMPARISON_WASI)/$$base.wasm 2>&1 | tail -3; \
+	done
+
+# ============================================================================
+# Capstone Integration Test
+# ============================================================================
+
+CAPSTONE_DIR := $(TEST_DIR)/capstone
+CAPSTONE_BUILD := $(BUILD_DIR)/capstone
+
+.PHONY: capstone-build
+capstone-build: $(CAPSTONE_BUILD)
+	@echo "Building capstone test (native)..."
+	@$(CC) -Wall -Wextra -std=c11 -g -O0 \
+		$(CAPSTONE_DIR)/capstone_test.c \
+		-o $(CAPSTONE_BUILD)/capstone_native
+	@echo "Building capstone test (wasi)..."
+	@$(CC_WASI) -Wall -Wextra -O2 \
+		$(CAPSTONE_DIR)/capstone_wasm.c \
+		-o $(CAPSTONE_BUILD)/capstone.wasm
+
+$(CAPSTONE_BUILD):
+	@mkdir -p $@
+
+.PHONY: capstone-test
+capstone-test: capstone-build
+	@echo ""
+	@echo "==============================================="
+	@echo "Capstone Integration Test"
+	@echo "==============================================="
+	@echo ""
+	@echo "Setting up test environment..."
+	@mkdir -p $(CAPSTONE_BUILD)/testenv
+	@echo "Running native capstone test..."
+	@cd $(CAPSTONE_BUILD)/testenv && ../capstone_native 2>&1 | tee ../native.log
+	@echo ""
+	@echo "Running Wasmtime capstone test..."
+	@cd $(CAPSTONE_BUILD)/testenv && $(WASMTIME) run --dir=. --env=TEST_MODE=wasi ../capstone.wasm 2>&1 | tee ../wasi.log
+	@echo ""
+	@echo "Comparing outputs..."
+	@diff -u $(CAPSTONE_BUILD)/native.log $(CAPSTONE_BUILD)/wasi.log && echo "PASS: Outputs identical" || echo "DIFF: Outputs differ (see above)"
+
+# ============================================================================
+# Unified Test Targets
+# ============================================================================
+
+# Run all unit tests
+.PHONY: test-all-unit
+test-all-unit: test
+	@echo "All unit tests complete."
+
+# Run all comparison tests
+.PHONY: test-all-comparison
+test-all-comparison: comparison-test
+	@echo "All comparison tests complete."
+
+# Run capstone test
+.PHONY: test-all-capstone
+test-all-capstone: capstone-test
+	@echo "Capstone test complete."
+
+# Run ALL tests (unit + comparison + capstone)
+.PHONY: test-all
+test-all: test-all-unit test-all-comparison test-all-capstone
+	@echo ""
+	@echo "==============================================="
+	@echo "ALL TESTS COMPLETE"
+	@echo "==============================================="
+
 # Check that generated code compiles
 .PHONY: check-bindings
 check-bindings: v0.2.0

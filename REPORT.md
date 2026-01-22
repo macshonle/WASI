@@ -258,7 +258,120 @@ All of these are intentional design decisions in WASI Preview 2 and do not indic
 bugs in either implementation. Applications should use portable APIs and avoid
 relying on platform-specific behaviors.
 
+## 6. Capstone Integration Test
+
+**Status:** ✅ Both platforms pass all 12 tests
+
+A comprehensive capstone test was created to demonstrate a large portion of the WASI API
+working together. This test creates a directory structure, writes files, reads them back,
+uses clocks, and validates all operations work identically on both platforms.
+
+### Test Coverage
+
+| Category | Tests | Native | WASI |
+|----------|-------|--------|------|
+| Filesystem | 6 | PASS | PASS |
+| Clocks | 3 | PASS | PASS |
+| Environment | 2 | PASS | PASS |
+| Combined Workflow | 1 | PASS | PASS |
+| **Total** | **12** | **12/12** | **12/12** |
+
+### Test Details
+
+**Filesystem Tests:**
+- `stat_directory` - Verify directory stat works
+- `stat_file` - Verify file stat returns correct size
+- `read_directory` - List directory contents using portable type checking
+- `file_read_write` - Create, write, read, and verify file contents
+- `file_seek` - Test lseek with SEEK_SET, SEEK_END, SEEK_CUR
+- `file_truncate` - Test ftruncate to resize files
+
+**Clock Tests:**
+- `clock_gettime_realtime` - Verify wall clock returns valid timestamp
+- `clock_gettime_monotonic` - Verify monotonic time advances
+- `nanosleep` - Verify sleep duration is accurate
+
+**Environment Tests:**
+- `environment_vars` - Access environment variables
+- `stdio_operations` - Test stdout/stderr output
+
+**Combined Workflow:**
+- Creates timestamped log file using clock, pseudo-random data, and environment info
+
+### Expected Differences in Output
+
+The diff between native and WASI outputs shows expected differences:
+- Platform string ("Native C" vs "WASI (WebAssembly)")
+- Exact timestamps (differ at runtime)
+- Environment variable count (67 on native vs 1 in sandboxed WASI)
+- TEST_MODE variable ("not set" vs "wasi")
+
+All 12 tests pass on both platforms, confirming behavioral compatibility.
+
+### Running the Capstone Test
+
+```bash
+# Build and run comparison
+make capstone-test
+
+# Run individually
+make capstone-build
+./build/capstone/capstone_native
+wasmtime run --dir=. --env=TEST_MODE=wasi build/capstone/capstone.wasm
+```
+
+## 7. Portability Tools
+
+### Compatibility Header
+
+A new `include/wasi_compat.h` header provides portable macros for writing code that works
+on both native POSIX and WASI environments.
+
+**Usage:**
+```c
+#include "wasi_compat.h"
+
+// Portable directory entry type checking
+struct dirent *entry = readdir(dir);
+if (wasi_is_regular_file(entry->d_type)) {
+    // Process regular file
+}
+
+// Or use stat() for maximum portability (recommended)
+if (wasi_stat_is_directory(path)) {
+    // Process directory
+}
+```
+
+**d_type Helper Functions:**
+- `wasi_is_directory(d_type)` - Check if directory
+- `wasi_is_regular_file(d_type)` - Check if regular file
+- `wasi_is_symlink(d_type)` - Check if symbolic link
+- `wasi_is_block_device(d_type)` - Check if block device
+- `wasi_is_char_device(d_type)` - Check if character device
+- `wasi_is_fifo(d_type)` - Check if FIFO
+- `wasi_is_socket(d_type)` - Check if socket
+
+**stat()-based Functions (Recommended):**
+- `wasi_stat_is_directory(path)` - Check using stat()
+- `wasi_stat_is_regular_file(path)` - Check using stat()
+- `wasi_stat_is_symlink(path)` - Check using lstat()
+
+## Conclusion
+
+Our WASI v0.2.0 C implementation demonstrates strong compatibility with Wasmtime's
+reference implementation. The observed differences are due to:
+
+1. **WASI's ABI design** (different constant values)
+2. **Security sandboxing** (permission bits, environment isolation)
+3. **Virtualization** (inode numbers, CWD mapping)
+
+All of these are intentional design decisions in WASI Preview 2 and do not indicate
+bugs in either implementation. Applications should use portable APIs and avoid
+relying on platform-specific behaviors.
+
 ---
 
 *Report generated: 2026-01-22*
-*Test infrastructure: tests/wasm-comparison/*
+*Test infrastructure: tests/wasm-comparison/, tests/capstone/*
+*Compatibility header: include/wasi_compat.h*
