@@ -1,7 +1,7 @@
 /**
  * WASI Filesystem Implementation
  *
- * This file implements the wasi:filesystem interfaces for UNIX/Linux/macOS.
+ * This file implements the wasi:filesystem interfaces for macOS (UNIX) and GNU/Linux.
  *
  * Interfaces implemented:
  *   - wasi:filesystem/types@0.2.0     - Filesystem types and descriptor operations
@@ -14,6 +14,9 @@
  */
 
 /* Feature test macros must come first */
+#ifdef __APPLE__
+    #define _DARWIN_C_SOURCE  /* Enable BSD extensions on macOS (st_*timespec, O_NOFOLLOW) */
+#endif
 #ifdef __linux__
     #define _GNU_SOURCE  /* Enable GNU extensions on Linux */
 #endif
@@ -1315,8 +1318,8 @@ static struct {
     const char *path;
     int fd;
 } preopens[] = {
-    { "/", -1 },
-    { ".", -1 },
+    { ".", -1 },  /* Current directory first - writable, used by tests */
+    { "/", -1 },  /* Root directory second - may be read-only (macOS SIP) */
 };
 static size_t num_preopens = 2;
 static bool preopens_initialized = false;
@@ -1325,8 +1328,8 @@ static void init_preopens(void) {
     if (preopens_initialized) return;
     preopens_initialized = true;
 
-    preopens[0].fd = open("/", O_RDONLY | O_DIRECTORY);
-    preopens[1].fd = open(".", O_RDONLY | O_DIRECTORY);
+    preopens[0].fd = open(".", O_RDONLY | O_DIRECTORY);
+    preopens[1].fd = open("/", O_RDONLY | O_DIRECTORY);
 }
 
 void wasi_filesystem_preopens_get_directories(

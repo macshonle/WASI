@@ -195,11 +195,11 @@ TEST(stat_at) {
 TEST(create_remove_directory) {
     wasi_filesystem_preopens_list_tuple2_own_descriptor_string_t preopens;
     wasi_filesystem_preopens_get_directories(&preopens);
-    assert(preopens.len >= 2);  /* Need "." preopen */
+    assert(preopens.len >= 1);  /* Need "." preopen */
 
-    /* Use "." preopen (index 1) */
+    /* Use "." preopen (index 0 - the writable current directory) */
     wasi_filesystem_types_borrow_descriptor_t borrow =
-        wasi_filesystem_types_borrow_descriptor(preopens.ptr[1].f0);
+        wasi_filesystem_types_borrow_descriptor(preopens.ptr[0].f0);
 
     imports_string_t path;
     make_string(&path, "test_dir_wasi_temp");

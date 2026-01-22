@@ -6,3 +6,6 @@ proposals/*/wit/deps/
 proposals/*/wit-0.3.0-draft/deps/
 .claude/settings.local.json
 /build
+
+# Local developer tools (downloaded, not checked in)
+/tools/

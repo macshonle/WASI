@@ -1,7 +1,7 @@
 /**
  * WASI Sockets Implementation
  *
- * This file implements the wasi:sockets interfaces for UNIX/Linux/macOS.
+ * This file implements the wasi:sockets interfaces for macOS (UNIX) and GNU/Linux.
  *
  * Interfaces implemented:
  *   - wasi:sockets/instance-network@0.2.0  - Network instance
@@ -14,6 +14,9 @@
  */
 
 /* Feature test macros must come first */
+#ifdef __APPLE__
+    #define _DARWIN_C_SOURCE  /* Enable BSD extensions on macOS */
+#endif
 #ifdef __linux__
     #define _GNU_SOURCE  /* Enable GNU extensions on Linux */
 #endif
@@ -40,6 +43,53 @@
 
 /* Include the generated bindings header */
 #include "../../build/c-bindings/sockets/imports.h"
+
+/* ============================================================================
+ * macOS Compatibility
+ * ============================================================================
+ * macOS doesn't have SOCK_CLOEXEC, SOCK_NONBLOCK, or accept4().
+ * We provide portable alternatives using fcntl().
+ */
+
+#ifndef SOCK_CLOEXEC
+    #define SOCK_CLOEXEC 0
+    #define NEED_SOCKET_CLOEXEC_WORKAROUND
+#endif
+
+#ifndef SOCK_NONBLOCK
+    #define SOCK_NONBLOCK 0
+    #define NEED_SOCKET_NONBLOCK_WORKAROUND
+#endif
+
+/* Set close-on-exec flag for a file descriptor */
+static inline int set_cloexec(int fd) {
+    int flags = fcntl(fd, F_GETFD, 0);
+    if (flags < 0) return -1;
+    return fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+}
+
+/* Set non-blocking flag for a file descriptor */
+static inline int set_nonblock(int fd) {
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0) return -1;
+    return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}
+
+/* Portable accept with CLOEXEC and NONBLOCK flags */
+static inline int portable_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags) {
+#ifdef __linux__
+    return accept4(sockfd, addr, addrlen, flags);
+#else
+    (void)flags;  /* We'll set flags manually */
+    int fd = accept(sockfd, addr, addrlen);
+    if (fd < 0) return fd;
+    if (set_cloexec(fd) < 0 || set_nonblock(fd) < 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+#endif
+}
 
 /* External declarations from io.c */
 extern int32_t wasi_io_poll_create_fd_pollable(int fd, bool for_write);
@@ -320,11 +370,12 @@ bool wasi_sockets_tcp_create_socket_create_tcp_socket(
         return false;
     }
 
+#ifdef NEED_SOCKET_CLOEXEC_WORKAROUND
+    set_cloexec(fd);
+#endif
+
     /* Set non-blocking */
-    int flags = fcntl(fd, F_GETFL, 0);
-    if (flags >= 0) {
-        fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-    }
+    set_nonblock(fd);
 
     int32_t handle = alloc_tcp_socket(fd, family);
     if (handle < 0) {
@@ -574,7 +625,7 @@ bool wasi_sockets_tcp_method_tcp_socket_accept(
     struct sockaddr_storage client_addr;
     socklen_t addr_len = sizeof(client_addr);
 
-    int client_fd = accept4(sock->fd, (struct sockaddr *)&client_addr, &addr_len, SOCK_CLOEXEC | SOCK_NONBLOCK);
+    int client_fd = portable_accept(sock->fd, (struct sockaddr *)&client_addr, &addr_len, SOCK_CLOEXEC | SOCK_NONBLOCK);
     if (client_fd < 0) {
         *err = errno_to_socket_error(errno);
         return false;
@@ -766,6 +817,7 @@ bool wasi_sockets_tcp_method_tcp_socket_keep_alive_idle_time(
     *ret = (uint64_t)val * 1000000000ULL;  /* seconds to nanoseconds */
     return true;
 #else
+    (void)ret;  /* unused on platforms without TCP_KEEPIDLE */
     *err = WASI_SOCKETS_NETWORK_ERROR_CODE_NOT_SUPPORTED;
     return false;
 #endif
@@ -1096,10 +1148,11 @@ bool wasi_sockets_udp_create_socket_create_udp_socket(
         return false;
     }
 
-    int flags = fcntl(fd, F_GETFL, 0);
-    if (flags >= 0) {
-        fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-    }
+#ifdef NEED_SOCKET_CLOEXEC_WORKAROUND
+    set_cloexec(fd);
+#endif
+
+    set_nonblock(fd);
 
     int32_t handle = alloc_udp_socket(fd, family);
     if (handle < 0) {

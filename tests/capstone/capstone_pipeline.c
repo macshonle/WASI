@@ -20,6 +20,9 @@
  * Run (wasi):       wasmtime run --dir=. --env=TEST_VAR=test_value pipeline.wasm
  */
 
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE  /* Enable arc4random_buf on macOS */
+#endif
 #define _POSIX_C_SOURCE 200809L
 
 #include <stdio.h>

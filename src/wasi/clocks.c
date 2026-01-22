@@ -1,13 +1,16 @@
 /**
  * WASI Clocks Implementation
  *
- * This file implements the wasi:clocks interfaces for UNIX/Linux/macOS.
+ * This file implements the wasi:clocks interfaces for macOS (UNIX) and GNU/Linux.
  *
  * Interfaces implemented:
  *   - wasi:clocks/monotonic-clock@0.2.0  - Monotonic time
  *   - wasi:clocks/wall-clock@0.2.0       - Wall clock time
  */
 
+#ifdef __APPLE__
+    #define _DARWIN_C_SOURCE  /* Enable BSD extensions on macOS */
+#endif
 #define _POSIX_C_SOURCE 199309L
 
 #include <stdint.h>

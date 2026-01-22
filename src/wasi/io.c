@@ -1,7 +1,7 @@
 /**
  * WASI I/O Implementation
  *
- * This file implements the wasi:io interfaces for UNIX/Linux/macOS.
+ * This file implements the wasi:io interfaces for macOS (UNIX) and GNU/Linux.
  *
  * Interfaces implemented:
  *   - wasi:io/error@0.2.0      - Error handling
@@ -9,6 +9,9 @@
  *   - wasi:io/streams@0.2.0    - Input/output streams
  */
 
+#ifdef __APPLE__
+    #define _DARWIN_C_SOURCE  /* Enable BSD extensions on macOS (fsync, etc.) */
+#endif
 #define _POSIX_C_SOURCE 199309L
 
 #include <stdint.h>

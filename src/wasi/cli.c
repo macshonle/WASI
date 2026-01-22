@@ -1,7 +1,7 @@
 /**
  * WASI CLI Implementation
  *
- * This file implements the wasi:cli interfaces for UNIX/Linux/macOS.
+ * This file implements the wasi:cli interfaces for macOS (UNIX) and GNU/Linux.
  *
  * Interfaces implemented:
  *   - wasi:cli/environment@0.2.0     - Environment variables and arguments
@@ -12,6 +12,9 @@
  *   - wasi:cli/terminal-*@0.2.0      - Terminal detection
  */
 
+#ifdef __APPLE__
+    #define _DARWIN_C_SOURCE  /* Enable BSD extensions on macOS */
+#endif
 #define _POSIX_C_SOURCE 200809L
 
 #include <stdint.h>
