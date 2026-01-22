@@ -19,9 +19,18 @@ extern int run_clocks_tests(void);
 extern int run_filesystem_tests(void);
 extern int run_sockets_tests(void);
 extern int run_cli_tests(void);
+extern void run_error_tests(void);
+extern int get_error_tests_passed(void);
+extern int get_error_tests_failed(void);
 
 /* CLI initialization function */
 extern void wasi_cli_init(int argc, char **argv);
+
+/* Wrapper for error tests to return failure count */
+static int run_errors_wrapper(void) {
+    run_error_tests();
+    return get_error_tests_failed();
+}
 
 /* Test suite registration */
 typedef struct {
@@ -37,6 +46,7 @@ static test_suite_t test_suites[] = {
     {"cli",        run_cli_tests},
     {"filesystem", run_filesystem_tests},
     {"sockets",    run_sockets_tests},
+    {"errors",     run_errors_wrapper},
     {NULL, NULL}  /* Sentinel */
 };
 
