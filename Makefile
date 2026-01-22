@@ -374,10 +374,10 @@ $(OBJ_DIR)/platform_%.o: $(PLATFORM_DIR)/%.c | $(OBJ_DIR)
 	@echo "  CC $<"
 	@$(CC) $(CFLAGS_DEBUG) -c $< -o $@
 
-# Compile test sources
+# Compile test sources (with TEST_RUNNER_MODE to disable individual main functions)
 $(OBJ_DIR)/test_%.o: $(TEST_DIR)/%.c | $(OBJ_DIR)
 	@echo "  CC $<"
-	@$(CC) $(CFLAGS_DEBUG) -c $< -o $@
+	@$(CC) $(CFLAGS_DEBUG) -DTEST_RUNNER_MODE -c $< -o $@
 
 # Build and run tests
 .PHONY: test
@@ -388,7 +388,7 @@ test: v0.2.0 $(OBJ_DIR) $(TEST_OBJS) $(WASI_OBJS) $(PLATFORM_OBJS)
 	@$(TEST_BIN)
 
 # Run individual test suites
-.PHONY: test-io test-random test-clocks
+.PHONY: test-io test-random test-clocks test-cli test-filesystem test-sockets
 test-io: test
 	@$(TEST_BIN) io
 
@@ -397,6 +397,15 @@ test-random: test
 
 test-clocks: test
 	@$(TEST_BIN) clocks
+
+test-cli: test
+	@$(TEST_BIN) cli
+
+test-filesystem: test
+	@$(TEST_BIN) filesystem
+
+test-sockets: test
+	@$(TEST_BIN) sockets
 
 # Check that generated code compiles
 .PHONY: check-bindings

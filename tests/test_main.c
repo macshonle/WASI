@@ -20,6 +20,9 @@ extern int run_filesystem_tests(void);
 extern int run_sockets_tests(void);
 extern int run_cli_tests(void);
 
+/* CLI initialization function */
+extern void wasi_cli_init(int argc, char **argv);
+
 /* Test suite registration */
 typedef struct {
     const char *name;
@@ -27,13 +30,13 @@ typedef struct {
 } test_suite_t;
 
 static test_suite_t test_suites[] = {
-    /* Uncomment as test suites are implemented */
-    // {"io",         run_io_tests},
-    // {"random",     run_random_tests},
-    // {"clocks",     run_clocks_tests},
-    // {"filesystem", run_filesystem_tests},
-    // {"sockets",    run_sockets_tests},
-    // {"cli",        run_cli_tests},
+    /* Test suites in dependency order */
+    {"random",     run_random_tests},
+    {"io",         run_io_tests},
+    {"clocks",     run_clocks_tests},
+    {"cli",        run_cli_tests},
+    {"filesystem", run_filesystem_tests},
+    {"sockets",    run_sockets_tests},
     {NULL, NULL}  /* Sentinel */
 };
 
@@ -62,6 +65,9 @@ static int run_suite(const char *name) {
 }
 
 int main(int argc, char *argv[]) {
+    /* Initialize CLI module for cli tests */
+    wasi_cli_init(argc, argv);
+
     printf("WASI Implementation Test Suite\n");
     printf("==============================\n");
 
