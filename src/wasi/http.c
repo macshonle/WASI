@@ -1822,25 +1822,6 @@ static http_outgoing_body_resource_t *get_outgoing_body(int32_t handle) {
     return outgoing_body_table[handle];
 }
 
-/* Write to outgoing body buffer */
-static bool outgoing_body_write_data(http_outgoing_body_resource_t *body,
-                                     const uint8_t *data, size_t len) {
-    if (body->finished) return false;
-
-    size_t new_len = body->buffer_len + len;
-    if (new_len > body->buffer_capacity) {
-        size_t new_cap = body->buffer_capacity == 0 ? 4096 : body->buffer_capacity * 2;
-        while (new_cap < new_len) new_cap *= 2;
-        uint8_t *new_buf = realloc(body->buffer, new_cap);
-        if (!new_buf) return false;
-        body->buffer = new_buf;
-        body->buffer_capacity = new_cap;
-    }
-    memcpy(body->buffer + body->buffer_len, data, len);
-    body->buffer_len = new_len;
-    return true;
-}
-
 /* Get output stream for writing */
 bool wasi_http_types_method_outgoing_body_write(
     wasi_http_types_borrow_outgoing_body_t self,
@@ -2001,21 +1982,6 @@ typedef struct {
 } http_future_trailers_resource_t;
 
 static http_future_trailers_resource_t *future_trailers_table[MAX_HTTP_HANDLES];
-static int32_t next_future_trailers_handle = 1;
-
-static int32_t alloc_future_trailers(void) {
-    if (next_future_trailers_handle >= MAX_HTTP_HANDLES) {
-        return -1;
-    }
-    http_future_trailers_resource_t *ft = calloc(1, sizeof(http_future_trailers_resource_t));
-    if (!ft) return -1;
-    ft->ready = false;
-    ft->trailers_handle = -1;
-    ft->has_error = false;
-    int32_t handle = next_future_trailers_handle++;
-    future_trailers_table[handle] = ft;
-    return handle;
-}
 
 static http_future_trailers_resource_t *get_future_trailers(int32_t handle) {
     if (handle <= 0 || handle >= MAX_HTTP_HANDLES) {
