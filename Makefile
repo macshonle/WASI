@@ -543,34 +543,47 @@ comparison-test: comparison-build
 	done
 
 # ============================================================================
-# Capstone Integration Test
+# Capstone Integration Tests
 # ============================================================================
 
 CAPSTONE_DIR := $(TEST_DIR)/capstone
 CAPSTONE_BUILD := $(BUILD_DIR)/capstone
 
-.PHONY: capstone-build
-capstone-build: $(CAPSTONE_BUILD)
-	@echo "Building capstone test (native)..."
-	@$(CC) -Wall -Wextra -std=c11 -g -O0 \
-		$(CAPSTONE_DIR)/capstone_test.c \
-		-o $(CAPSTONE_BUILD)/capstone_native
-	@echo "Building capstone test (wasi)..."
-	@$(CC_WASI) -Wall -Wextra -O2 \
-		$(CAPSTONE_DIR)/capstone_wasm.c \
-		-o $(CAPSTONE_BUILD)/capstone.wasm
-
 $(CAPSTONE_BUILD):
 	@mkdir -p $@
 
+# Build all capstone tests
+.PHONY: capstone-build
+capstone-build: $(CAPSTONE_BUILD)
+	@echo "Building capstone tests (native)..."
+	@$(CC) -Wall -Wextra -std=c11 -g -O0 \
+		$(CAPSTONE_DIR)/capstone_test.c \
+		-o $(CAPSTONE_BUILD)/capstone_native
+	@$(CC) -Wall -Wextra -std=c11 -g -O0 \
+		$(CAPSTONE_DIR)/capstone_pipeline.c \
+		-o $(CAPSTONE_BUILD)/pipeline_native -lm
+	@$(CC) -Wall -Wextra -std=c11 -g -O0 \
+		$(CAPSTONE_DIR)/capstone_tree.c \
+		-o $(CAPSTONE_BUILD)/tree_native
+	@echo "Building capstone tests (wasi)..."
+	@$(CC_WASI) -Wall -Wextra -O2 \
+		$(CAPSTONE_DIR)/capstone_wasm.c \
+		-o $(CAPSTONE_BUILD)/capstone.wasm
+	@$(CC_WASI) -Wall -Wextra -O2 \
+		$(CAPSTONE_DIR)/capstone_pipeline.c \
+		-o $(CAPSTONE_BUILD)/pipeline.wasm
+	@$(CC_WASI) -Wall -Wextra -O2 \
+		$(CAPSTONE_DIR)/capstone_tree.c \
+		-o $(CAPSTONE_BUILD)/tree.wasm
+
+# Run original capstone test
 .PHONY: capstone-test
 capstone-test: capstone-build
 	@echo ""
 	@echo "==============================================="
-	@echo "Capstone Integration Test"
+	@echo "Capstone Integration Test (Original)"
 	@echo "==============================================="
 	@echo ""
-	@echo "Setting up test environment..."
 	@mkdir -p $(CAPSTONE_BUILD)/testenv
 	@echo "Running native capstone test..."
 	@cd $(CAPSTONE_BUILD)/testenv && ../capstone_native 2>&1 | tee ../native.log
@@ -580,6 +593,54 @@ capstone-test: capstone-build
 	@echo ""
 	@echo "Comparing outputs..."
 	@diff -u $(CAPSTONE_BUILD)/native.log $(CAPSTONE_BUILD)/wasi.log && echo "PASS: Outputs identical" || echo "DIFF: Outputs differ (see above)"
+
+# Run capstone pipeline test
+.PHONY: capstone-pipeline
+capstone-pipeline: capstone-build
+	@echo ""
+	@echo "==============================================="
+	@echo "Capstone Test 2: Data Processing Pipeline"
+	@echo "==============================================="
+	@echo ""
+	@mkdir -p $(CAPSTONE_BUILD)/testenv
+	@echo "Running native pipeline test..."
+	@cd $(CAPSTONE_BUILD)/testenv && ../pipeline_native 2>&1 | tee ../pipeline_native.log
+	@echo ""
+	@echo "Running Wasmtime pipeline test..."
+	@cd $(CAPSTONE_BUILD)/testenv && $(WASMTIME) run --dir=. --env=TEST_VAR=wasi_test ../pipeline.wasm 2>&1 | tee ../pipeline_wasi.log
+	@echo ""
+	@echo "Comparing results (filtering non-deterministic values)..."
+	@grep -E "^\s*(PASS|FAIL|Results):" $(CAPSTONE_BUILD)/pipeline_native.log > $(CAPSTONE_BUILD)/pipeline_native_results.txt || true
+	@grep -E "^\s*(PASS|FAIL|Results):" $(CAPSTONE_BUILD)/pipeline_wasi.log > $(CAPSTONE_BUILD)/pipeline_wasi_results.txt || true
+	@diff -u $(CAPSTONE_BUILD)/pipeline_native_results.txt $(CAPSTONE_BUILD)/pipeline_wasi_results.txt && echo "PASS: Test results match" || echo "DIFF: Test results differ (see above)"
+
+# Run capstone tree test
+.PHONY: capstone-tree
+capstone-tree: capstone-build
+	@echo ""
+	@echo "==============================================="
+	@echo "Capstone Test 3: Recursive Directory Tree"
+	@echo "==============================================="
+	@echo ""
+	@mkdir -p $(CAPSTONE_BUILD)/testenv
+	@echo "Running native tree test..."
+	@cd $(CAPSTONE_BUILD)/testenv && ../tree_native 2>&1 | tee ../tree_native.log
+	@echo ""
+	@echo "Running Wasmtime tree test..."
+	@cd $(CAPSTONE_BUILD)/testenv && $(WASMTIME) run --dir=. ../tree.wasm 2>&1 | tee ../tree_wasi.log
+	@echo ""
+	@echo "Comparing results (filtering non-deterministic values)..."
+	@grep -E "^\s*(PASS|FAIL|Results):" $(CAPSTONE_BUILD)/tree_native.log > $(CAPSTONE_BUILD)/tree_native_results.txt || true
+	@grep -E "^\s*(PASS|FAIL|Results):" $(CAPSTONE_BUILD)/tree_wasi.log > $(CAPSTONE_BUILD)/tree_wasi_results.txt || true
+	@diff -u $(CAPSTONE_BUILD)/tree_native_results.txt $(CAPSTONE_BUILD)/tree_wasi_results.txt && echo "PASS: Test results match" || echo "DIFF: Test results differ (see above)"
+
+# Run all capstone tests
+.PHONY: capstone-all
+capstone-all: capstone-test capstone-pipeline capstone-tree
+	@echo ""
+	@echo "==============================================="
+	@echo "All Capstone Tests Complete"
+	@echo "==============================================="
 
 # ============================================================================
 # Unified Test Targets
@@ -595,10 +656,10 @@ test-all-unit: test
 test-all-comparison: comparison-test
 	@echo "All comparison tests complete."
 
-# Run capstone test
+# Run all capstone tests
 .PHONY: test-all-capstone
-test-all-capstone: capstone-test
-	@echo "Capstone test complete."
+test-all-capstone: capstone-all
+	@echo "All capstone tests complete."
 
 # Run ALL tests (unit + comparison + capstone)
 .PHONY: test-all
