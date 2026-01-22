@@ -8,8 +8,10 @@
  *   - wasi:filesystem/preopens@0.2.0  - Preopened directories
  */
 
-/* _GNU_SOURCE must come first to enable renameat and other GNU extensions */
-#define _GNU_SOURCE
+/* Feature test macros must come first */
+#ifdef __linux__
+    #define _GNU_SOURCE  /* Enable GNU extensions on Linux */
+#endif
 #define _POSIX_C_SOURCE 200809L
 
 #include <stdio.h>   /* renameat is declared here in POSIX */

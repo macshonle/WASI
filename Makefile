@@ -334,13 +334,15 @@ TEST_DIR := tests
 # Object directory
 OBJ_DIR := $(BUILD_DIR)/obj
 
-# Platform detection for source file selection
+# Platform detection for source file selection and WASI SDK path
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
     PLATFORM_SRC := $(PLATFORM_DIR)/linux.c
+    WASI_SDK_PATH_DEFAULT := /opt/wasi-sdk-25.0-x86_64-linux
 endif
 ifeq ($(UNAME_S),Darwin)
     PLATFORM_SRC := $(PLATFORM_DIR)/darwin.c
+    WASI_SDK_PATH_DEFAULT := /opt/wasi-sdk-25.0-x86_64-macos
 endif
 
 # Source files
@@ -411,7 +413,7 @@ test-sockets: test
 # WASI Comparison Tests (Native vs Wasmtime)
 # ============================================================================
 
-WASI_SDK_PATH ?= /opt/wasi-sdk-25.0-x86_64-linux
+WASI_SDK_PATH ?= $(WASI_SDK_PATH_DEFAULT)
 WASMTIME ?= $(HOME)/.wasmtime/bin/wasmtime
 CC_WASI := $(WASI_SDK_PATH)/bin/wasm32-wasip2-clang
 

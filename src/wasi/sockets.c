@@ -13,8 +13,10 @@
  *   - wasi:sockets/ip-name-lookup@0.2.0    - DNS resolution
  */
 
-/* _GNU_SOURCE must come first to enable all GNU extensions */
-#define _GNU_SOURCE
+/* Feature test macros must come first */
+#ifdef __linux__
+    #define _GNU_SOURCE  /* Enable GNU extensions on Linux */
+#endif
 #define _POSIX_C_SOURCE 200809L
 
 #include <stdint.h>

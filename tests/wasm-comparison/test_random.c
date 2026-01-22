@@ -12,11 +12,14 @@
 #include <string.h>
 #include <time.h>
 
-/* For native Linux, we use /dev/urandom directly for comparison */
+/* Platform-specific random includes */
 #ifdef __wasi__
-#include <wasi/api.h>
-#else
-#include <sys/random.h>
+    /* WASI provides random_get via wasi/api.h */
+    #include <wasi/api.h>
+#elif defined(__APPLE__)
+    /* arc4random_buf is in stdlib.h on macOS (already included) */
+#elif defined(__linux__)
+    #include <sys/random.h>  /* for getrandom() */
 #endif
 
 static int tests_passed = 0;
@@ -35,16 +38,22 @@ static int tests_failed = 0;
     tests_passed++; \
 } while(0)
 
-/* Get random bytes - uses arc4random_buf on WASI, getrandom on Linux */
+/* Get random bytes - platform-specific implementations */
 static int get_random_bytes(void *buf, size_t len) {
 #ifdef __wasi__
-    /* WASI provides arc4random_buf via its libc */
+    /* WASI provides __wasi_random_get via wasi/api.h */
+    __wasi_errno_t err = __wasi_random_get((uint8_t *)buf, len);
+    return (err == 0) ? 0 : -1;
+#elif defined(__APPLE__)
+    /* macOS provides arc4random_buf in stdlib.h */
     arc4random_buf(buf, len);
     return 0;
-#else
-    /* Native Linux uses getrandom */
+#elif defined(__linux__)
+    /* Linux uses getrandom syscall */
     ssize_t ret = getrandom(buf, len, 0);
     return (ret == (ssize_t)len) ? 0 : -1;
+#else
+    #error "Unsupported platform for random number generation"
 #endif
 }
 
@@ -144,6 +153,8 @@ int main(void) {
     printf("=== Random Comparison Tests ===\n");
 #ifdef __wasi__
     printf("Platform: WASI (WebAssembly)\n");
+#elif defined(__APPLE__)
+    printf("Platform: Native macOS\n");
 #else
     printf("Platform: Native Linux\n");
 #endif
