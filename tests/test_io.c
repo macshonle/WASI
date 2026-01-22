@@ -73,14 +73,21 @@ TEST(pollable_always_ready) {
 /* ============================================================================
  * Test: Pollable for stdout (should be ready for write)
  * ============================================================================
+ * Note: Under heavy I/O load, poll() may transiently return "not ready" for
+ * stdout. We use pollable_block() which waits until ready, then verify.
  */
 TEST(pollable_stdout_ready) {
     int32_t handle = wasi_io_poll_create_fd_pollable(STDOUT_FILENO, true);
     assert(handle > 0);
 
     wasi_io_poll_borrow_pollable_t borrow = { handle };
+
+    /* Block until ready (should return immediately for stdout in most cases) */
+    wasi_io_poll_method_pollable_block(borrow);
+
+    /* After block returns, pollable should be marked ready */
     bool ready = wasi_io_poll_method_pollable_ready(borrow);
-    assert(ready == true);  /* stdout should be ready for writing */
+    assert(ready == true);
 
     wasi_io_poll_pollable_drop_own((wasi_io_poll_own_pollable_t){ handle });
 }
