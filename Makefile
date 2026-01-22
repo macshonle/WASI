@@ -274,20 +274,22 @@ help:
 	@echo "  cargo install wasm-tools wit-deps-cli wit-bindgen-cli"
 	@echo ""
 	@echo "Targets:"
-	@echo "  all            - Generate C bindings from current WIT files (default)"
-	@echo "  v0.2.0         - Generate bindings from WASI v0.2.0"
-	@echo "  v0.2.X         - Generate bindings from any released version (0.2.1-0.2.9)"
-	@echo "  deps           - Fetch WIT dependencies only"
-	@echo "  validate       - Validate all WIT files"
-	@echo "  proposal-X     - Generate bindings for a single proposal (e.g., proposal-io)"
-	@echo "  compile        - Compile WASI C implementation (requires bindings)"
-	@echo "  test           - Build and run all tests"
-	@echo "  test-io        - Run only I/O tests"
-	@echo "  test-random    - Run only random tests"
-	@echo "  check-bindings - Verify generated bindings compile"
-	@echo "  clean          - Remove all generated files"
-	@echo "  clean-deps     - Remove fetched WIT dependencies"
-	@echo "  help           - Show this help"
+	@echo "  all               - Generate C bindings from current WIT files (default)"
+	@echo "  v0.2.0            - Generate bindings from WASI v0.2.0"
+	@echo "  v0.2.X            - Generate bindings from any released version (0.2.1-0.2.9)"
+	@echo "  deps              - Fetch WIT dependencies only"
+	@echo "  validate          - Validate all WIT files"
+	@echo "  proposal-X        - Generate bindings for a single proposal (e.g., proposal-io)"
+	@echo "  compile           - Compile WASI C implementation (requires bindings)"
+	@echo "  test              - Build and run all tests"
+	@echo "  test-io           - Run only I/O tests"
+	@echo "  test-random       - Run only random tests"
+	@echo "  test-safe         - Build and run tests in safe mode (non-destructive only)"
+	@echo "  test-safe-compare - Compare regular vs safe mode test results"
+	@echo "  check-bindings    - Verify generated bindings compile"
+	@echo "  clean             - Remove all generated files"
+	@echo "  clean-deps        - Remove fetched WIT dependencies"
+	@echo "  help              - Show this help"
 	@echo ""
 	@echo "Output:"
 	@echo "  $(BINDINGS_DIR)/       - Generated C bindings"
@@ -325,6 +327,8 @@ CC := gcc
 CFLAGS := -Wall -Wextra -std=c11 -I$(BINDINGS_DIR)
 CFLAGS_DEBUG := $(CFLAGS) -g -O0 -DDEBUG
 CFLAGS_RELEASE := $(CFLAGS) -O2 -DNDEBUG
+# Safe mode: non-destructive operations only (for sandboxed testing)
+CFLAGS_SAFE := $(CFLAGS_DEBUG) -DWASI_SAFE_MODE
 
 # Source directories
 SRC_DIR := src/wasi
@@ -408,6 +412,76 @@ test-filesystem: test
 
 test-sockets: test
 	@$(TEST_BIN) sockets
+
+# ============================================================================
+# Safe Mode Tests (non-destructive operations only)
+# ============================================================================
+
+# Safe mode object directory
+SAFE_OBJ_DIR := $(BUILD_DIR)/obj-safe
+
+# Safe mode test binary
+TEST_BIN_SAFE := $(BUILD_DIR)/test_wasi_safe
+
+# Safe mode object files
+WASI_OBJS_SAFE := $(patsubst $(SRC_DIR)/%.c,$(SAFE_OBJ_DIR)/%.o,$(WASI_SRCS))
+PLATFORM_OBJS_SAFE := $(patsubst $(PLATFORM_DIR)/%.c,$(SAFE_OBJ_DIR)/platform_%.o,$(PLATFORM_SRCS))
+TEST_OBJS_SAFE := $(patsubst $(TEST_DIR)/%.c,$(SAFE_OBJ_DIR)/test_%.o,$(TEST_SRCS))
+
+$(SAFE_OBJ_DIR):
+	@mkdir -p $(SAFE_OBJ_DIR)
+
+# Compile WASI implementation sources with safe mode
+$(SAFE_OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(SAFE_OBJ_DIR)
+	@echo "  CC [safe] $<"
+	@$(CC) $(CFLAGS_SAFE) -c $< -o $@
+
+# Compile platform sources with safe mode
+$(SAFE_OBJ_DIR)/platform_%.o: $(PLATFORM_DIR)/%.c | $(SAFE_OBJ_DIR)
+	@echo "  CC [safe] $<"
+	@$(CC) $(CFLAGS_SAFE) -c $< -o $@
+
+# Compile test sources with safe mode
+$(SAFE_OBJ_DIR)/test_%.o: $(TEST_DIR)/%.c | $(SAFE_OBJ_DIR)
+	@echo "  CC [safe] $<"
+	@$(CC) $(CFLAGS_SAFE) -DTEST_RUNNER_MODE -c $< -o $@
+
+# Build and run tests in safe mode
+.PHONY: test-safe
+test-safe: v0.2.0 $(SAFE_OBJ_DIR) $(TEST_OBJS_SAFE) $(WASI_OBJS_SAFE) $(PLATFORM_OBJS_SAFE)
+	@echo "Linking safe mode test binary..."
+	@$(CC) $(CFLAGS_SAFE) -o $(TEST_BIN_SAFE) $(TEST_OBJS_SAFE) $(WASI_OBJS_SAFE) $(PLATFORM_OBJS_SAFE)
+	@echo "Running tests in SAFE MODE (non-destructive operations only)..."
+	@echo "Note: Tests requiring destructive filesystem operations will fail."
+	@echo ""
+	@$(TEST_BIN_SAFE) || true
+
+# Compare regular vs safe mode test results
+.PHONY: test-safe-compare
+test-safe-compare: test test-safe
+	@echo ""
+	@echo "==============================================="
+	@echo "Safe Mode Comparison Report"
+	@echo "==============================================="
+	@echo ""
+	@echo "Running regular tests..."
+	@$(TEST_BIN) 2>&1 | tee $(BUILD_DIR)/test_regular.log || true
+	@echo ""
+	@echo "Running safe mode tests..."
+	@$(TEST_BIN_SAFE) 2>&1 | tee $(BUILD_DIR)/test_safe.log || true
+	@echo ""
+	@echo "==============================================="
+	@echo "Results Comparison"
+	@echo "==============================================="
+	@echo ""
+	@echo "Regular mode results:"
+	@grep -E "passed:|failed:" $(BUILD_DIR)/test_regular.log || true
+	@echo ""
+	@echo "Safe mode results:"
+	@grep -E "passed:|failed:" $(BUILD_DIR)/test_safe.log || true
+	@echo ""
+	@echo "Differences (tests expected to fail in safe mode):"
+	@diff $(BUILD_DIR)/test_regular.log $(BUILD_DIR)/test_safe.log 2>/dev/null || echo "See above for differences"
 
 # ============================================================================
 # WASI Comparison Tests (Native vs Wasmtime)

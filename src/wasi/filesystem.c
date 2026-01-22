@@ -6,6 +6,11 @@
  * Interfaces implemented:
  *   - wasi:filesystem/types@0.2.0     - Filesystem types and descriptor operations
  *   - wasi:filesystem/preopens@0.2.0  - Preopened directories
+ *
+ * Safe Mode (WASI_SAFE_MODE):
+ *   When compiled with -DWASI_SAFE_MODE, destructive operations (write, create,
+ *   delete, rename, truncate, etc.) return READ_ONLY errors instead of performing
+ *   the actual operations. This allows testing in sandboxed environments.
  */
 
 /* Feature test macros must come first */
@@ -322,6 +327,11 @@ bool wasi_filesystem_types_method_descriptor_write_via_stream(
     wasi_filesystem_types_own_output_stream_t *ret,
     wasi_filesystem_types_error_code_t *err
 ) {
+#ifdef WASI_SAFE_MODE
+    (void)self; (void)offset; (void)ret;
+    *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_READ_ONLY;
+    return false;
+#else
     wasi_descriptor_resource_t *desc = wasi_descriptor_get(self.__handle);
     if (!desc) {
         *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_BAD_DESCRIPTOR;
@@ -349,6 +359,7 @@ bool wasi_filesystem_types_method_descriptor_write_via_stream(
 
     ret->__handle = handle;
     return true;
+#endif
 }
 
 bool wasi_filesystem_types_method_descriptor_append_via_stream(
@@ -356,6 +367,11 @@ bool wasi_filesystem_types_method_descriptor_append_via_stream(
     wasi_filesystem_types_own_output_stream_t *ret,
     wasi_filesystem_types_error_code_t *err
 ) {
+#ifdef WASI_SAFE_MODE
+    (void)self; (void)ret;
+    *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_READ_ONLY;
+    return false;
+#else
     wasi_descriptor_resource_t *desc = wasi_descriptor_get(self.__handle);
     if (!desc) {
         *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_BAD_DESCRIPTOR;
@@ -384,6 +400,7 @@ bool wasi_filesystem_types_method_descriptor_append_via_stream(
 
     ret->__handle = handle;
     return true;
+#endif
 }
 
 bool wasi_filesystem_types_method_descriptor_advise(
@@ -427,6 +444,11 @@ bool wasi_filesystem_types_method_descriptor_sync_data(
     wasi_filesystem_types_borrow_descriptor_t self,
     wasi_filesystem_types_error_code_t *err
 ) {
+#ifdef WASI_SAFE_MODE
+    /* In safe mode, sync is a no-op since nothing was written */
+    (void)self; (void)err;
+    return true;
+#else
     wasi_descriptor_resource_t *desc = wasi_descriptor_get(self.__handle);
     if (!desc) {
         *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_BAD_DESCRIPTOR;
@@ -438,6 +460,7 @@ bool wasi_filesystem_types_method_descriptor_sync_data(
         return false;
     }
     return true;
+#endif
 }
 
 bool wasi_filesystem_types_method_descriptor_get_flags(
@@ -500,6 +523,11 @@ bool wasi_filesystem_types_method_descriptor_set_size(
     wasi_filesystem_types_filesize_t size,
     wasi_filesystem_types_error_code_t *err
 ) {
+#ifdef WASI_SAFE_MODE
+    (void)self; (void)size;
+    *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_READ_ONLY;
+    return false;
+#else
     wasi_descriptor_resource_t *desc = wasi_descriptor_get(self.__handle);
     if (!desc) {
         *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_BAD_DESCRIPTOR;
@@ -511,6 +539,7 @@ bool wasi_filesystem_types_method_descriptor_set_size(
         return false;
     }
     return true;
+#endif
 }
 
 bool wasi_filesystem_types_method_descriptor_set_times(
@@ -519,6 +548,11 @@ bool wasi_filesystem_types_method_descriptor_set_times(
     wasi_filesystem_types_new_timestamp_t *data_modification_timestamp,
     wasi_filesystem_types_error_code_t *err
 ) {
+#ifdef WASI_SAFE_MODE
+    (void)self; (void)data_access_timestamp; (void)data_modification_timestamp;
+    *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_READ_ONLY;
+    return false;
+#else
     wasi_descriptor_resource_t *desc = wasi_descriptor_get(self.__handle);
     if (!desc) {
         *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_BAD_DESCRIPTOR;
@@ -552,6 +586,7 @@ bool wasi_filesystem_types_method_descriptor_set_times(
         return false;
     }
     return true;
+#endif
 }
 
 bool wasi_filesystem_types_method_descriptor_read(
@@ -594,6 +629,11 @@ bool wasi_filesystem_types_method_descriptor_write(
     wasi_filesystem_types_filesize_t *ret,
     wasi_filesystem_types_error_code_t *err
 ) {
+#ifdef WASI_SAFE_MODE
+    (void)self; (void)buffer; (void)offset; (void)ret;
+    *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_READ_ONLY;
+    return false;
+#else
     wasi_descriptor_resource_t *desc = wasi_descriptor_get(self.__handle);
     if (!desc) {
         *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_BAD_DESCRIPTOR;
@@ -608,6 +648,7 @@ bool wasi_filesystem_types_method_descriptor_write(
 
     *ret = (uint64_t)nwritten;
     return true;
+#endif
 }
 
 bool wasi_filesystem_types_method_descriptor_read_directory(
@@ -649,6 +690,11 @@ bool wasi_filesystem_types_method_descriptor_sync(
     wasi_filesystem_types_borrow_descriptor_t self,
     wasi_filesystem_types_error_code_t *err
 ) {
+#ifdef WASI_SAFE_MODE
+    /* In safe mode, sync is a no-op since nothing was written */
+    (void)self; (void)err;
+    return true;
+#else
     wasi_descriptor_resource_t *desc = wasi_descriptor_get(self.__handle);
     if (!desc) {
         *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_BAD_DESCRIPTOR;
@@ -660,6 +706,7 @@ bool wasi_filesystem_types_method_descriptor_sync(
         return false;
     }
     return true;
+#endif
 }
 
 bool wasi_filesystem_types_method_descriptor_create_directory_at(
@@ -667,6 +714,11 @@ bool wasi_filesystem_types_method_descriptor_create_directory_at(
     imports_string_t *path,
     wasi_filesystem_types_error_code_t *err
 ) {
+#ifdef WASI_SAFE_MODE
+    (void)self; (void)path;
+    *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_READ_ONLY;
+    return false;
+#else
     wasi_descriptor_resource_t *desc = wasi_descriptor_get(self.__handle);
     if (!desc) {
         *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_BAD_DESCRIPTOR;
@@ -687,6 +739,7 @@ bool wasi_filesystem_types_method_descriptor_create_directory_at(
 
     free(cpath);
     return true;
+#endif
 }
 
 bool wasi_filesystem_types_method_descriptor_stat(
@@ -751,6 +804,12 @@ bool wasi_filesystem_types_method_descriptor_set_times_at(
     wasi_filesystem_types_new_timestamp_t *data_modification_timestamp,
     wasi_filesystem_types_error_code_t *err
 ) {
+#ifdef WASI_SAFE_MODE
+    (void)self; (void)path_flags; (void)path;
+    (void)data_access_timestamp; (void)data_modification_timestamp;
+    *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_READ_ONLY;
+    return false;
+#else
     wasi_descriptor_resource_t *desc = wasi_descriptor_get(self.__handle);
     if (!desc) {
         *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_BAD_DESCRIPTOR;
@@ -793,6 +852,7 @@ bool wasi_filesystem_types_method_descriptor_set_times_at(
 
     free(cpath);
     return true;
+#endif
 }
 
 bool wasi_filesystem_types_method_descriptor_link_at(
@@ -803,6 +863,12 @@ bool wasi_filesystem_types_method_descriptor_link_at(
     imports_string_t *new_path,
     wasi_filesystem_types_error_code_t *err
 ) {
+#ifdef WASI_SAFE_MODE
+    (void)self; (void)old_path_flags; (void)old_path;
+    (void)new_descriptor; (void)new_path;
+    *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_READ_ONLY;
+    return false;
+#else
     wasi_descriptor_resource_t *old_desc = wasi_descriptor_get(self.__handle);
     wasi_descriptor_resource_t *new_desc = wasi_descriptor_get(new_descriptor.__handle);
     if (!old_desc || !new_desc) {
@@ -831,6 +897,7 @@ bool wasi_filesystem_types_method_descriptor_link_at(
     free(cold_path);
     free(cnew_path);
     return true;
+#endif
 }
 
 bool wasi_filesystem_types_method_descriptor_open_at(
@@ -847,6 +914,20 @@ bool wasi_filesystem_types_method_descriptor_open_at(
         *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_BAD_DESCRIPTOR;
         return false;
     }
+
+#ifdef WASI_SAFE_MODE
+    /* In safe mode, block any destructive operations:
+     * - O_CREAT (create new files)
+     * - O_TRUNC (truncate existing files)
+     * - O_WRONLY or O_RDWR (write access)
+     */
+    if ((open_flags & WASI_FILESYSTEM_TYPES_OPEN_FLAGS_CREATE) ||
+        (open_flags & WASI_FILESYSTEM_TYPES_OPEN_FLAGS_TRUNCATE) ||
+        (flags & WASI_FILESYSTEM_TYPES_DESCRIPTOR_FLAGS_WRITE)) {
+        *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_READ_ONLY;
+        return false;
+    }
+#endif
 
     char *cpath = wasi_string_to_cstr(path);
     if (!cpath) {
@@ -943,6 +1024,11 @@ bool wasi_filesystem_types_method_descriptor_remove_directory_at(
     imports_string_t *path,
     wasi_filesystem_types_error_code_t *err
 ) {
+#ifdef WASI_SAFE_MODE
+    (void)self; (void)path;
+    *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_READ_ONLY;
+    return false;
+#else
     wasi_descriptor_resource_t *desc = wasi_descriptor_get(self.__handle);
     if (!desc) {
         *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_BAD_DESCRIPTOR;
@@ -963,6 +1049,7 @@ bool wasi_filesystem_types_method_descriptor_remove_directory_at(
 
     free(cpath);
     return true;
+#endif
 }
 
 bool wasi_filesystem_types_method_descriptor_rename_at(
@@ -972,6 +1059,11 @@ bool wasi_filesystem_types_method_descriptor_rename_at(
     imports_string_t *new_path,
     wasi_filesystem_types_error_code_t *err
 ) {
+#ifdef WASI_SAFE_MODE
+    (void)self; (void)old_path; (void)new_descriptor; (void)new_path;
+    *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_READ_ONLY;
+    return false;
+#else
     wasi_descriptor_resource_t *old_desc = wasi_descriptor_get(self.__handle);
     wasi_descriptor_resource_t *new_desc = wasi_descriptor_get(new_descriptor.__handle);
     if (!old_desc || !new_desc) {
@@ -998,6 +1090,7 @@ bool wasi_filesystem_types_method_descriptor_rename_at(
     free(cold_path);
     free(cnew_path);
     return true;
+#endif
 }
 
 bool wasi_filesystem_types_method_descriptor_symlink_at(
@@ -1006,6 +1099,11 @@ bool wasi_filesystem_types_method_descriptor_symlink_at(
     imports_string_t *new_path,
     wasi_filesystem_types_error_code_t *err
 ) {
+#ifdef WASI_SAFE_MODE
+    (void)self; (void)old_path; (void)new_path;
+    *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_READ_ONLY;
+    return false;
+#else
     wasi_descriptor_resource_t *desc = wasi_descriptor_get(self.__handle);
     if (!desc) {
         *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_BAD_DESCRIPTOR;
@@ -1031,6 +1129,7 @@ bool wasi_filesystem_types_method_descriptor_symlink_at(
     free(cold_path);
     free(cnew_path);
     return true;
+#endif
 }
 
 bool wasi_filesystem_types_method_descriptor_unlink_file_at(
@@ -1038,6 +1137,11 @@ bool wasi_filesystem_types_method_descriptor_unlink_file_at(
     imports_string_t *path,
     wasi_filesystem_types_error_code_t *err
 ) {
+#ifdef WASI_SAFE_MODE
+    (void)self; (void)path;
+    *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_READ_ONLY;
+    return false;
+#else
     wasi_descriptor_resource_t *desc = wasi_descriptor_get(self.__handle);
     if (!desc) {
         *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_BAD_DESCRIPTOR;
@@ -1058,6 +1162,7 @@ bool wasi_filesystem_types_method_descriptor_unlink_file_at(
 
     free(cpath);
     return true;
+#endif
 }
 
 bool wasi_filesystem_types_method_descriptor_is_same_object(
