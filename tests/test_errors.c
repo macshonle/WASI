@@ -95,7 +95,10 @@ void test_open_nonexistent_file(void) {
     TEST_PASS("open_nonexistent_file");
 }
 
-/* Test: Creating file in non-existent directory should fail */
+/* Test: Creating file in non-existent directory should fail
+ * Note: Skipped in safe mode (requires write permission)
+ */
+#ifndef WASI_SAFE_MODE
 void test_create_in_nonexistent_dir(void) {
     wasi_filesystem_types_own_descriptor_t preopen;
     if (!get_preopen_dir(&preopen)) {
@@ -128,6 +131,7 @@ void test_create_in_nonexistent_dir(void) {
     wasi_filesystem_types_descriptor_drop_own(preopen);
     TEST_PASS("create_in_nonexistent_dir");
 }
+#endif
 
 /* Test: Stat on non-existent file should fail */
 void test_stat_nonexistent(void) {
@@ -158,7 +162,10 @@ void test_stat_nonexistent(void) {
     TEST_PASS("stat_nonexistent");
 }
 
-/* Test: Remove non-existent directory should fail */
+/* Test: Remove non-existent directory should fail
+ * Note: Skipped in safe mode (requires write permission)
+ */
+#ifndef WASI_SAFE_MODE
 void test_remove_nonexistent_dir(void) {
     wasi_filesystem_types_own_descriptor_t preopen;
     if (!get_preopen_dir(&preopen)) {
@@ -184,6 +191,10 @@ void test_remove_nonexistent_dir(void) {
     wasi_filesystem_types_descriptor_drop_own(preopen);
     TEST_PASS("remove_nonexistent_dir");
 }
+#endif /* WASI_SAFE_MODE */
+
+/* The remaining tests require write permission and are skipped in safe mode */
+#ifndef WASI_SAFE_MODE
 
 /* Test: Unlink non-existent file should fail */
 void test_unlink_nonexistent(void) {
@@ -570,6 +581,8 @@ void test_rename_nonexistent(void) {
     TEST_PASS("rename_nonexistent");
 }
 
+#endif /* WASI_SAFE_MODE - end of write-dependent tests */
+
 /* ============================================================================
  * Run All Error Tests
  * ============================================================================ */
@@ -577,9 +590,13 @@ void test_rename_nonexistent(void) {
 void run_error_tests(void) {
     printf("Running WASI error case tests...\n");
 
+    /* Read-only tests - work in safe mode */
     test_open_nonexistent_file();
-    test_create_in_nonexistent_dir();
     test_stat_nonexistent();
+
+#ifndef WASI_SAFE_MODE
+    /* Write-dependent tests - skipped in safe mode */
+    test_create_in_nonexistent_dir();
     test_remove_nonexistent_dir();
     test_unlink_nonexistent();
     test_remove_nonempty_dir();
@@ -589,6 +606,7 @@ void run_error_tests(void) {
     test_mkdir_existing();
     test_truncate_extend();
     test_rename_nonexistent();
+#endif
 }
 
 int get_error_tests_passed(void) {

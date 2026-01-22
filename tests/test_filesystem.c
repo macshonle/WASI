@@ -188,8 +188,10 @@ TEST(stat_at) {
 
 /* ============================================================================
  * Test: Create and remove directory
+ * Note: Skipped in safe mode (WASI_SAFE_MODE) as it's a destructive operation
  * ============================================================================
  */
+#ifndef WASI_SAFE_MODE
 TEST(create_remove_directory) {
     wasi_filesystem_preopens_list_tuple2_own_descriptor_string_t preopens;
     wasi_filesystem_preopens_get_directories(&preopens);
@@ -237,6 +239,7 @@ TEST(create_remove_directory) {
     }
     free(preopens.ptr);
 }
+#endif
 
 /* ============================================================================
  * Test: Open and read file
@@ -365,7 +368,9 @@ int run_filesystem_tests(void) {
     RUN_TEST(descriptor_stat);
     RUN_TEST(read_directory);
     RUN_TEST(stat_at);
+#ifndef WASI_SAFE_MODE
     RUN_TEST(create_remove_directory);
+#endif
     RUN_TEST(open_read_file);
     RUN_TEST(descriptor_get_flags);
     RUN_TEST(is_same_object);

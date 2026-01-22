@@ -334,35 +334,36 @@ UNAME_M := $(shell uname -m)
 WASI_SDK_VERSION := 25
 WASI_SDK_FULL_VERSION := 25.0
 
+# Platform detection (OS)
 ifeq ($(UNAME_S),Darwin)
     PLATFORM_SRC := $(PLATFORM_DIR)/darwin.c
-    # Detect architecture for macOS (arm64 for Apple Silicon, x86_64 for Intel)
-    ifeq ($(UNAME_M),arm64)
-        WASI_SDK_ARCH := arm64
-    else
-        WASI_SDK_ARCH := x86_64
-    endif
-    WASI_SDK_OS := macos
-    # Try to find installed wasi-sdk (check local first, then system)
-    WASI_SDK_PATH_DEFAULT := $(firstword \
-        $(wildcard $(CURDIR)/tools/wasi-sdk) \
-        $(wildcard $(HOME)/.local/wasi-sdk) \
-        $(wildcard /opt/wasi-sdk) \
-        $(wildcard /opt/wasi-sdk-*-$(WASI_SDK_ARCH)-macos) \
-        $(CURDIR)/tools/wasi-sdk)
-endif
-ifeq ($(UNAME_S),Linux)
+    WASI_SDK_OS  := macos
+else ifeq ($(UNAME_S),Linux)
     PLATFORM_SRC := $(PLATFORM_DIR)/linux.c
-    WASI_SDK_ARCH := x86_64
-    WASI_SDK_OS := linux
-    # Try to find installed wasi-sdk (check local first, then system)
-    WASI_SDK_PATH_DEFAULT := $(firstword \
-        $(wildcard $(CURDIR)/tools/wasi-sdk) \
-        $(wildcard $(HOME)/.local/wasi-sdk) \
-        $(wildcard /opt/wasi-sdk) \
-        $(wildcard /opt/wasi-sdk-*-x86_64-linux) \
-        $(CURDIR)/tools/wasi-sdk)
+    WASI_SDK_OS  := linux
+else
+    $(error Unsupported OS: $(UNAME_S))
 endif
+
+# Architecture detection (supports both macOS arm64 and Linux aarch64)
+ifeq ($(UNAME_M),arm64)
+    WASI_SDK_ARCH := arm64
+else ifeq ($(UNAME_M),aarch64)
+    WASI_SDK_ARCH := arm64
+else ifeq ($(UNAME_M),x86_64)
+    WASI_SDK_ARCH := x86_64
+else
+    $(warning Unknown arch '$(UNAME_M)'; defaulting to x86_64)
+    WASI_SDK_ARCH := x86_64
+endif
+
+# Try to find installed wasi-sdk (check local first, then system)
+WASI_SDK_PATH_DEFAULT := $(firstword \
+    $(wildcard $(CURDIR)/tools/wasi-sdk) \
+    $(wildcard $(HOME)/.local/wasi-sdk) \
+    $(wildcard /opt/wasi-sdk) \
+    $(wildcard /opt/wasi-sdk-*-$(WASI_SDK_ARCH)-$(WASI_SDK_OS)) \
+    $(CURDIR)/tools/wasi-sdk)
 
 # Source files
 WASI_SRCS := $(wildcard $(SRC_DIR)/*.c)
@@ -417,14 +418,11 @@ TOOLS_DIR := $(CURDIR)/tools
 # Unified setup target - installs all required tools
 .PHONY: setup
 setup:
-	@echo "Setting up development environment..."
-	@echo ""
-	@# Install WASI SDK
-	@echo "[1/2] WASI SDK $(WASI_SDK_FULL_VERSION) for $(WASI_SDK_ARCH)-$(WASI_SDK_OS)"
+	@echo "WASI SDK $(WASI_SDK_FULL_VERSION) for $(WASI_SDK_ARCH)-$(WASI_SDK_OS)..."
 	@mkdir -p $(TOOLS_DIR)
 	@if [ -d "$(TOOLS_DIR)/wasi-sdk" ]; then \
-		echo "  Already installed at $(TOOLS_DIR)/wasi-sdk"; \
-		$(TOOLS_DIR)/wasi-sdk/bin/clang --version | head -1 | sed 's/^/  /'; \
+		echo " Installed at $(TOOLS_DIR)/wasi-sdk"; \
+		$(TOOLS_DIR)/wasi-sdk/bin/clang --version | head -1 | sed 's/^/ /'; \
 	else \
 		echo "  Downloading $(WASI_SDK_TARBALL)..."; \
 		curl -L -o "$(TOOLS_DIR)/$(WASI_SDK_TARBALL)" "$(WASI_SDK_URL)"; \
@@ -434,22 +432,17 @@ setup:
 		rm "$(TOOLS_DIR)/$(WASI_SDK_TARBALL)"; \
 		echo "  Installed at $(TOOLS_DIR)/wasi-sdk"; \
 	fi
-	@echo ""
-	@# Install Wasmtime
-	@echo "[2/2] Wasmtime"
+	@echo "Wasmtime..."
 	@if command -v wasmtime >/dev/null 2>&1; then \
-		echo "  Already installed:"; \
-		wasmtime --version | sed 's/^/  /'; \
+		echo " Installed: $$(wasmtime --version)" ; \
 	elif [ -x "$(HOME)/.wasmtime/bin/wasmtime" ]; then \
-		echo "  Already installed at $(HOME)/.wasmtime/bin/wasmtime:"; \
-		$(HOME)/.wasmtime/bin/wasmtime --version | sed 's/^/  /'; \
+		echo " Installed at $(HOME)/.wasmtime/bin/wasmtime:"; \
+		$(HOME)/.wasmtime/bin/wasmtime --version | sed 's/^/ /'; \
 	else \
 		echo "  Installing..."; \
 		curl https://wasmtime.dev/install.sh -sSf | bash; \
 		echo "  Installed."; \
 	fi
-	@echo ""
-	@echo "Setup complete. Run 'make build' to build everything."
 
 # ============================================================================
 # WASI SDK and Wasmtime Configuration
@@ -505,29 +498,24 @@ CAPSTONE_BUILD := $(BUILD_DIR)/capstone
 $(CAPSTONE_BUILD):
 	@mkdir -p $@
 
+# Capstone compiler flags
+# IMPORTANT: -O0 is required for WASI builds because wasm-opt (Binaryen) does
+# not support WebAssembly components yet. Higher optimization levels trigger
+# wasm-opt which fails on component binaries.
+CAPSTONE_CFLAGS_COMMON := -Wall -Wextra -O0
+CAPSTONE_CFLAGS_NATIVE := $(CAPSTONE_CFLAGS_COMMON) -std=c11 -g
+CAPSTONE_CFLAGS_WASI   := $(CAPSTONE_CFLAGS_COMMON)
+
 # Build capstone tests (native + WASI)
-# Note: Use -O0 to avoid wasm-opt (Binaryen) which doesn't support wasm components yet
 .PHONY: build-capstone
 build-capstone: $(CAPSTONE_BUILD)
 	@echo "Building capstone tests..."
-	@$(CC) -Wall -Wextra -std=c11 -g -O0 \
-		$(CAPSTONE_DIR)/capstone_test.c \
-		-o $(CAPSTONE_BUILD)/capstone_native
-	@$(CC) -Wall -Wextra -std=c11 -g -O0 \
-		$(CAPSTONE_DIR)/capstone_pipeline.c \
-		-o $(CAPSTONE_BUILD)/pipeline_native -lm
-	@$(CC) -Wall -Wextra -std=c11 -g -O0 \
-		$(CAPSTONE_DIR)/capstone_tree.c \
-		-o $(CAPSTONE_BUILD)/tree_native
-	@$(CC_WASI) -Wall -Wextra -O0 \
-		$(CAPSTONE_DIR)/capstone_wasm.c \
-		-o $(CAPSTONE_BUILD)/capstone.wasm
-	@$(CC_WASI) -Wall -Wextra -O0 \
-		$(CAPSTONE_DIR)/capstone_pipeline.c \
-		-o $(CAPSTONE_BUILD)/pipeline.wasm
-	@$(CC_WASI) -Wall -Wextra -O0 \
-		$(CAPSTONE_DIR)/capstone_tree.c \
-		-o $(CAPSTONE_BUILD)/tree.wasm
+	@$(CC) $(CAPSTONE_CFLAGS_NATIVE) $(CAPSTONE_DIR)/capstone_test.c -o $(CAPSTONE_BUILD)/capstone_native
+	@$(CC) $(CAPSTONE_CFLAGS_NATIVE) $(CAPSTONE_DIR)/capstone_pipeline.c -o $(CAPSTONE_BUILD)/pipeline_native -lm
+	@$(CC) $(CAPSTONE_CFLAGS_NATIVE) $(CAPSTONE_DIR)/capstone_tree.c -o $(CAPSTONE_BUILD)/tree_native
+	@$(CC_WASI) $(CAPSTONE_CFLAGS_WASI) $(CAPSTONE_DIR)/capstone_wasm.c -o $(CAPSTONE_BUILD)/capstone.wasm
+	@$(CC_WASI) $(CAPSTONE_CFLAGS_WASI) $(CAPSTONE_DIR)/capstone_pipeline.c -o $(CAPSTONE_BUILD)/pipeline.wasm
+	@$(CC_WASI) $(CAPSTONE_CFLAGS_WASI) $(CAPSTONE_DIR)/capstone_tree.c -o $(CAPSTONE_BUILD)/tree.wasm
 
 # ============================================================================
 # Unified Build Target
@@ -565,63 +553,59 @@ test: build
 	total_fail=$$((total_fail + unit_fail)); \
 	echo "unit: $$unit_pass passed, $$unit_fail failed" >> $(TEST_RESULTS); \
 	\
-	echo ""; \
 	echo "Running comparison tests..."; \
 	comp_pass=0; comp_fail=0; \
 	for base in $(basename $(COMPARISON_SRCS)); do \
-		echo "  $$base: native"; \
 		$(CURDIR)/$(COMPARISON_NATIVE)/$$base > $(CURDIR)/$(BUILD_DIR)/comp_native_$$base.log 2>&1; \
-		echo "  $$base: wasi"; \
-		$(WASMTIME) run --dir=. --env=WASI_TEST_VAR=1 $(CURDIR)/$(COMPARISON_WASI)/$$base.wasm > $(CURDIR)/$(BUILD_DIR)/comp_wasi_$$base.log 2>&1; \
 		native_fail=$$(grep -oE '[0-9]+ failed' $(CURDIR)/$(BUILD_DIR)/comp_native_$$base.log | grep -oE '[0-9]+' || echo 0); \
-		wasi_fail=$$(grep -oE '[0-9]+ failed' $(CURDIR)/$(BUILD_DIR)/comp_wasi_$$base.log | grep -oE '[0-9]+' || echo 0); \
-		if [ "$$native_fail" = "0" ] && [ "$$wasi_fail" = "0" ]; then \
-			comp_pass=$$((comp_pass + 1)); \
+		if [ "$$native_fail" = "0" ]; then \
+			echo "  $${base}_native: PASS"; \
 		else \
+			echo "  $${base}_native: FAIL"; \
+		fi; \
+		$(WASMTIME) run --dir=. --env=WASI_TEST_VAR=1 $(CURDIR)/$(COMPARISON_WASI)/$$base.wasm > $(CURDIR)/$(BUILD_DIR)/comp_wasi_$$base.log 2>&1; \
+		wasi_fail=$$(grep -oE '[0-9]+ failed' $(CURDIR)/$(BUILD_DIR)/comp_wasi_$$base.log | grep -oE '[0-9]+' || echo 0); \
+		if [ "$$wasi_fail" = "0" ]; then \
+			echo "  $${base}_wasi: PASS"; \
+		else \
+			echo "  $${base}_wasi: FAIL"; \
+		fi; \
+		if [ "$$native_fail" = "0" ] && [ "$$wasi_fail" = "0" ]; then \
+			comp_pass=$$((comp_pass + 2)); \
+		elif [ "$$native_fail" = "0" ] || [ "$$wasi_fail" = "0" ]; then \
+			comp_pass=$$((comp_pass + 1)); \
 			comp_fail=$$((comp_fail + 1)); \
-			echo "    FAIL: $$base"; \
+		else \
+			comp_fail=$$((comp_fail + 2)); \
 		fi; \
 	done; \
 	total_pass=$$((total_pass + comp_pass)); \
 	total_fail=$$((total_fail + comp_fail)); \
 	echo "comparison: $$comp_pass passed, $$comp_fail failed" >> $(TEST_RESULTS); \
 	\
-	echo ""; \
 	echo "Running capstone tests..."; \
 	cap_pass=0; cap_fail=0; \
 	\
-	echo "  capstone: native"; \
-	cd $(CAPSTONE_TESTENV) && $(CURDIR)/$(CAPSTONE_BUILD)/capstone_native > $(CURDIR)/$(CAPSTONE_BUILD)/capstone_native.log 2>&1; \
-	echo "  capstone: wasi"; \
-	cd $(CAPSTONE_TESTENV) && $(WASMTIME) run --dir=. --env=TEST_MODE=wasi $(CURDIR)/$(CAPSTONE_BUILD)/capstone.wasm > $(CURDIR)/$(CAPSTONE_BUILD)/capstone_wasi.log 2>&1; \
-	native_p=$$(grep -oE '[0-9]+ passed' $(CURDIR)/$(CAPSTONE_BUILD)/capstone_native.log | grep -oE '[0-9]+' || echo 0); \
-	native_f=$$(grep -oE '[0-9]+ failed' $(CURDIR)/$(CAPSTONE_BUILD)/capstone_native.log | grep -oE '[0-9]+' || echo 0); \
-	wasi_p=$$(grep -oE '[0-9]+ passed' $(CURDIR)/$(CAPSTONE_BUILD)/capstone_wasi.log | grep -oE '[0-9]+' || echo 0); \
-	wasi_f=$$(grep -oE '[0-9]+ failed' $(CURDIR)/$(CAPSTONE_BUILD)/capstone_wasi.log | grep -oE '[0-9]+' || echo 0); \
-	cap_pass=$$((cap_pass + native_p + wasi_p)); \
-	cap_fail=$$((cap_fail + native_f + wasi_f)); \
+	run_and_count() { \
+		name="$$1"; shift; \
+		log="$$1"; shift; \
+		( cd "$(CAPSTONE_TESTENV)" && "$$@" ) > "$$log" 2>&1; \
+		p=$$(grep -oE '[0-9]+ passed' "$$log" | grep -oE '[0-9]+' || echo 0); \
+		f=$$(grep -oE '[0-9]+ failed' "$$log" | grep -oE '[0-9]+' || echo 0); \
+		if [ "$$f" = "0" ]; then echo "  $$name: PASS"; else echo "  $$name: FAIL"; fi; \
+		cap_pass=$$((cap_pass + p)); \
+		cap_fail=$$((cap_fail + f)); \
+	}; \
 	\
-	echo "  pipeline: native"; \
-	cd $(CAPSTONE_TESTENV) && $(CURDIR)/$(CAPSTONE_BUILD)/pipeline_native > $(CURDIR)/$(CAPSTONE_BUILD)/pipeline_native.log 2>&1; \
-	echo "  pipeline: wasi"; \
-	cd $(CAPSTONE_TESTENV) && $(WASMTIME) run --dir=. --env=TEST_VAR=wasi_test $(CURDIR)/$(CAPSTONE_BUILD)/pipeline.wasm > $(CURDIR)/$(CAPSTONE_BUILD)/pipeline_wasi.log 2>&1; \
-	native_p=$$(grep -oE '[0-9]+ passed' $(CURDIR)/$(CAPSTONE_BUILD)/pipeline_native.log | grep -oE '[0-9]+' || echo 0); \
-	native_f=$$(grep -oE '[0-9]+ failed' $(CURDIR)/$(CAPSTONE_BUILD)/pipeline_native.log | grep -oE '[0-9]+' || echo 0); \
-	wasi_p=$$(grep -oE '[0-9]+ passed' $(CURDIR)/$(CAPSTONE_BUILD)/pipeline_wasi.log | grep -oE '[0-9]+' || echo 0); \
-	wasi_f=$$(grep -oE '[0-9]+ failed' $(CURDIR)/$(CAPSTONE_BUILD)/pipeline_wasi.log | grep -oE '[0-9]+' || echo 0); \
-	cap_pass=$$((cap_pass + native_p + wasi_p)); \
-	cap_fail=$$((cap_fail + native_f + wasi_f)); \
+	BDIR="$(CURDIR)/$(CAPSTONE_BUILD)"; \
+	run_and_count capstone_native "$$BDIR/capstone_native.log" "$$BDIR/capstone_native"; \
+	run_and_count capstone_wasi   "$$BDIR/capstone_wasi.log"   "$(WASMTIME)" run --dir=. --env=TEST_MODE=wasi "$$BDIR/capstone.wasm"; \
 	\
-	echo "  tree: native"; \
-	cd $(CAPSTONE_TESTENV) && $(CURDIR)/$(CAPSTONE_BUILD)/tree_native > $(CURDIR)/$(CAPSTONE_BUILD)/tree_native.log 2>&1; \
-	echo "  tree: wasi"; \
-	cd $(CAPSTONE_TESTENV) && $(WASMTIME) run --dir=. $(CURDIR)/$(CAPSTONE_BUILD)/tree.wasm > $(CURDIR)/$(CAPSTONE_BUILD)/tree_wasi.log 2>&1; \
-	native_p=$$(grep -oE '[0-9]+ passed' $(CURDIR)/$(CAPSTONE_BUILD)/tree_native.log | grep -oE '[0-9]+' || echo 0); \
-	native_f=$$(grep -oE '[0-9]+ failed' $(CURDIR)/$(CAPSTONE_BUILD)/tree_native.log | grep -oE '[0-9]+' || echo 0); \
-	wasi_p=$$(grep -oE '[0-9]+ passed' $(CURDIR)/$(CAPSTONE_BUILD)/tree_wasi.log | grep -oE '[0-9]+' || echo 0); \
-	wasi_f=$$(grep -oE '[0-9]+ failed' $(CURDIR)/$(CAPSTONE_BUILD)/tree_wasi.log | grep -oE '[0-9]+' || echo 0); \
-	cap_pass=$$((cap_pass + native_p + wasi_p)); \
-	cap_fail=$$((cap_fail + native_f + wasi_f)); \
+	run_and_count pipeline_native "$$BDIR/pipeline_native.log" "$$BDIR/pipeline_native"; \
+	run_and_count pipeline_wasi   "$$BDIR/pipeline_wasi.log"   "$(WASMTIME)" run --dir=. --env=TEST_VAR=wasi_test "$$BDIR/pipeline.wasm"; \
+	\
+	run_and_count tree_native     "$$BDIR/tree_native.log"     "$$BDIR/tree_native"; \
+	run_and_count tree_wasi       "$$BDIR/tree_wasi.log"       "$(WASMTIME)" run --dir=. "$$BDIR/tree.wasm"; \
 	\
 	total_pass=$$((total_pass + cap_pass)); \
 	total_fail=$$((total_fail + cap_fail)); \
@@ -629,7 +613,7 @@ test: build
 	\
 	echo ""; \
 	echo "Test Summary:"; \
-	cat $(TEST_RESULTS) | while read line; do echo "  $$line"; done; \
+	while IFS= read -r line; do echo "  $$line"; done < $(TEST_RESULTS); \
 	echo ""; \
 	if [ $$total_fail -eq 0 ]; then \
 		echo "PASSED: $$total_pass tests passed, 0 failed"; \
