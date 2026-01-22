@@ -652,22 +652,20 @@ capstone-build-native: $(CAPSTONE_BUILD)
 		-o $(CAPSTONE_BUILD)/tree_native
 
 # Build all capstone tests (native + WASI)
-# Note: WASI component builds may fail due to Binaryen not supporting wasm components yet
+# Note: Use -O0 to avoid wasm-opt (Binaryen) which doesn't support wasm components yet
+# See: https://github.com/WebAssembly/binaryen/issues/6728
 .PHONY: capstone-build
 capstone-build: capstone-build-native
 	@echo "Building capstone tests (wasi)..."
-	@$(CC_WASI) -Wall -Wextra -O2 \
+	@$(CC_WASI) -Wall -Wextra -O0 \
 		$(CAPSTONE_DIR)/capstone_wasm.c \
-		-o $(CAPSTONE_BUILD)/capstone.wasm || \
-		echo "  Warning: WASI build failed (Binaryen may not support wasm components yet)"
-	@$(CC_WASI) -Wall -Wextra -O2 \
+		-o $(CAPSTONE_BUILD)/capstone.wasm
+	@$(CC_WASI) -Wall -Wextra -O0 \
 		$(CAPSTONE_DIR)/capstone_pipeline.c \
-		-o $(CAPSTONE_BUILD)/pipeline.wasm || \
-		echo "  Warning: WASI pipeline build failed"
-	@$(CC_WASI) -Wall -Wextra -O2 \
+		-o $(CAPSTONE_BUILD)/pipeline.wasm
+	@$(CC_WASI) -Wall -Wextra -O0 \
 		$(CAPSTONE_DIR)/capstone_tree.c \
-		-o $(CAPSTONE_BUILD)/tree.wasm || \
-		echo "  Warning: WASI tree build failed"
+		-o $(CAPSTONE_BUILD)/tree.wasm
 
 # Run native capstone tests only (no WASI/Wasmtime required)
 .PHONY: capstone-test-native
@@ -698,19 +696,19 @@ capstone-test: capstone-build
 	@echo "==============================================="
 	@echo ""
 	@mkdir -p $(CAPSTONE_BUILD)/testenv
-	@echo "Running native capstone test..."
-	@cd $(CAPSTONE_BUILD)/testenv && ../capstone_native 2>&1 | tee ../native.log
-	@if [ -f "$(CAPSTONE_BUILD)/capstone.wasm" ]; then \
-		echo ""; \
-		echo "Running Wasmtime capstone test..."; \
-		cd $(CAPSTONE_BUILD)/testenv && $(WASMTIME) run --dir=. --env=TEST_MODE=wasi ../capstone.wasm 2>&1 | tee ../wasi.log; \
-		echo ""; \
-		echo "Comparing outputs..."; \
-		diff -u $(CAPSTONE_BUILD)/native.log $(CAPSTONE_BUILD)/wasi.log && echo "PASS: Outputs identical" || echo "DIFF: Outputs differ (see above)"; \
-	else \
-		echo ""; \
-		echo "Skipping Wasmtime test (WASI build not available)"; \
-	fi
+	@echo "Running native capstone test..." && \
+		cd $(CAPSTONE_BUILD)/testenv && ../capstone_native 2>&1 | tee $(CURDIR)/$(CAPSTONE_BUILD)/native.log && \
+		if [ -f "$(CURDIR)/$(CAPSTONE_BUILD)/capstone.wasm" ]; then \
+			echo ""; \
+			echo "Running Wasmtime capstone test..."; \
+			$(WASMTIME) run --dir=. --env=TEST_MODE=wasi ../capstone.wasm 2>&1 | tee $(CURDIR)/$(CAPSTONE_BUILD)/wasi.log; \
+			echo ""; \
+			echo "Comparing outputs..."; \
+			diff -u $(CURDIR)/$(CAPSTONE_BUILD)/native.log $(CURDIR)/$(CAPSTONE_BUILD)/wasi.log && echo "PASS: Outputs identical" || echo "DIFF: Outputs differ (see above)"; \
+		else \
+			echo ""; \
+			echo "Skipping Wasmtime test (WASI build not available)"; \
+		fi
 
 # Run capstone pipeline test
 .PHONY: capstone-pipeline
