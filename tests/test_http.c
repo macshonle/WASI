@@ -15,6 +15,9 @@
 static int tests_passed = 0;
 static int tests_failed = 0;
 
+/* Forward declaration for test runner */
+int run_http_tests(void);
+
 /* Test macros */
 #define TEST(name) static void test_##name(void)
 #define RUN_TEST(name) do { \
@@ -72,15 +75,15 @@ TEST(fields_from_list) {
     proxy_tuple2_field_key_field_value_t input_entries[2];
 
     /* Entry 1: Content-Type: text/plain */
-    input_entries[0].f0.ptr = (uint8_t *)"Content-Type";
+    input_entries[0].f0.ptr = (uint8_t *)(uintptr_t)"Content-Type";
     input_entries[0].f0.len = 12;
-    input_entries[0].f1.ptr = (uint8_t *)"text/plain";
+    input_entries[0].f1.ptr = (uint8_t *)(uintptr_t)"text/plain";
     input_entries[0].f1.len = 10;
 
     /* Entry 2: X-Custom: value */
-    input_entries[1].f0.ptr = (uint8_t *)"X-Custom";
+    input_entries[1].f0.ptr = (uint8_t *)(uintptr_t)"X-Custom";
     input_entries[1].f0.len = 8;
-    input_entries[1].f1.ptr = (uint8_t *)"value";
+    input_entries[1].f1.ptr = (uint8_t *)(uintptr_t)"value";
     input_entries[1].f1.len = 5;
 
     proxy_list_tuple2_field_key_field_value_t list = {
@@ -114,8 +117,8 @@ TEST(fields_get_set) {
     wasi_http_types_borrow_fields_t borrow = wasi_http_types_borrow_fields(fields);
 
     /* Append a header */
-    wasi_http_types_field_key_t name = { .ptr = (uint8_t *)"Content-Type", .len = 12 };
-    wasi_http_types_field_value_t value = { .ptr = (uint8_t *)"text/html", .len = 9 };
+    wasi_http_types_field_key_t name = { .ptr = (uint8_t *)(uintptr_t)"Content-Type", .len = 12 };
+    wasi_http_types_field_value_t value = { .ptr = (uint8_t *)(uintptr_t)"text/html", .len = 9 };
     wasi_http_types_header_error_t err;
 
     bool ok = wasi_http_types_method_fields_append(borrow, &name, &value, &err);
@@ -140,16 +143,16 @@ TEST(fields_case_insensitivity) {
     wasi_http_types_own_fields_t fields = wasi_http_types_constructor_fields();
     wasi_http_types_borrow_fields_t borrow = wasi_http_types_borrow_fields(fields);
 
-    wasi_http_types_field_key_t name = { .ptr = (uint8_t *)"Content-Type", .len = 12 };
-    wasi_http_types_field_value_t value = { .ptr = (uint8_t *)"text/plain", .len = 10 };
+    wasi_http_types_field_key_t name = { .ptr = (uint8_t *)(uintptr_t)"Content-Type", .len = 12 };
+    wasi_http_types_field_value_t value = { .ptr = (uint8_t *)(uintptr_t)"text/plain", .len = 10 };
     wasi_http_types_header_error_t err;
 
     wasi_http_types_method_fields_append(borrow, &name, &value, &err);
 
     /* Check with different cases */
-    wasi_http_types_field_key_t name_lower = { .ptr = (uint8_t *)"content-type", .len = 12 };
-    wasi_http_types_field_key_t name_upper = { .ptr = (uint8_t *)"CONTENT-TYPE", .len = 12 };
-    wasi_http_types_field_key_t name_mixed = { .ptr = (uint8_t *)"CoNtEnT-TyPe", .len = 12 };
+    wasi_http_types_field_key_t name_lower = { .ptr = (uint8_t *)(uintptr_t)"content-type", .len = 12 };
+    wasi_http_types_field_key_t name_upper = { .ptr = (uint8_t *)(uintptr_t)"CONTENT-TYPE", .len = 12 };
+    wasi_http_types_field_key_t name_mixed = { .ptr = (uint8_t *)(uintptr_t)"CoNtEnT-TyPe", .len = 12 };
 
     ASSERT_TRUE(wasi_http_types_method_fields_has(borrow, &name_lower));
     ASSERT_TRUE(wasi_http_types_method_fields_has(borrow, &name_upper));
@@ -169,13 +172,13 @@ TEST(fields_multiple_values) {
     wasi_http_types_own_fields_t fields = wasi_http_types_constructor_fields();
     wasi_http_types_borrow_fields_t borrow = wasi_http_types_borrow_fields(fields);
 
-    wasi_http_types_field_key_t name = { .ptr = (uint8_t *)"Accept", .len = 6 };
+    wasi_http_types_field_key_t name = { .ptr = (uint8_t *)(uintptr_t)"Accept", .len = 6 };
     wasi_http_types_header_error_t err;
 
     /* Append multiple values for same header */
-    wasi_http_types_field_value_t value1 = { .ptr = (uint8_t *)"text/html", .len = 9 };
-    wasi_http_types_field_value_t value2 = { .ptr = (uint8_t *)"text/plain", .len = 10 };
-    wasi_http_types_field_value_t value3 = { .ptr = (uint8_t *)"*/*", .len = 3 };
+    wasi_http_types_field_value_t value1 = { .ptr = (uint8_t *)(uintptr_t)"text/html", .len = 9 };
+    wasi_http_types_field_value_t value2 = { .ptr = (uint8_t *)(uintptr_t)"text/plain", .len = 10 };
+    wasi_http_types_field_value_t value3 = { .ptr = (uint8_t *)(uintptr_t)"*/*", .len = 3 };
 
     wasi_http_types_method_fields_append(borrow, &name, &value1, &err);
     wasi_http_types_method_fields_append(borrow, &name, &value2, &err);
@@ -196,12 +199,12 @@ TEST(fields_delete) {
     wasi_http_types_borrow_fields_t borrow = wasi_http_types_borrow_fields(fields);
     wasi_http_types_header_error_t err;
 
-    wasi_http_types_field_key_t name1 = { .ptr = (uint8_t *)"Content-Type", .len = 12 };
-    wasi_http_types_field_value_t value1 = { .ptr = (uint8_t *)"text/html", .len = 9 };
+    wasi_http_types_field_key_t name1 = { .ptr = (uint8_t *)(uintptr_t)"Content-Type", .len = 12 };
+    wasi_http_types_field_value_t value1 = { .ptr = (uint8_t *)(uintptr_t)"text/html", .len = 9 };
     wasi_http_types_method_fields_append(borrow, &name1, &value1, &err);
 
-    wasi_http_types_field_key_t name2 = { .ptr = (uint8_t *)"X-Custom", .len = 8 };
-    wasi_http_types_field_value_t value2 = { .ptr = (uint8_t *)"value", .len = 5 };
+    wasi_http_types_field_key_t name2 = { .ptr = (uint8_t *)(uintptr_t)"X-Custom", .len = 8 };
+    wasi_http_types_field_value_t value2 = { .ptr = (uint8_t *)(uintptr_t)"value", .len = 5 };
     wasi_http_types_method_fields_append(borrow, &name2, &value2, &err);
 
     /* Verify both exist */
@@ -224,12 +227,12 @@ TEST(fields_entries) {
     wasi_http_types_borrow_fields_t borrow = wasi_http_types_borrow_fields(fields);
     wasi_http_types_header_error_t err;
 
-    wasi_http_types_field_key_t name1 = { .ptr = (uint8_t *)"Content-Type", .len = 12 };
-    wasi_http_types_field_value_t value1 = { .ptr = (uint8_t *)"text/html", .len = 9 };
+    wasi_http_types_field_key_t name1 = { .ptr = (uint8_t *)(uintptr_t)"Content-Type", .len = 12 };
+    wasi_http_types_field_value_t value1 = { .ptr = (uint8_t *)(uintptr_t)"text/html", .len = 9 };
     wasi_http_types_method_fields_append(borrow, &name1, &value1, &err);
 
-    wasi_http_types_field_key_t name2 = { .ptr = (uint8_t *)"Content-Length", .len = 14 };
-    wasi_http_types_field_value_t value2 = { .ptr = (uint8_t *)"1234", .len = 4 };
+    wasi_http_types_field_key_t name2 = { .ptr = (uint8_t *)(uintptr_t)"Content-Length", .len = 14 };
+    wasi_http_types_field_value_t value2 = { .ptr = (uint8_t *)(uintptr_t)"1234", .len = 4 };
     wasi_http_types_method_fields_append(borrow, &name2, &value2, &err);
 
     /* Get all entries */
@@ -248,8 +251,8 @@ TEST(fields_clone) {
     wasi_http_types_borrow_fields_t borrow = wasi_http_types_borrow_fields(fields);
     wasi_http_types_header_error_t err;
 
-    wasi_http_types_field_key_t name = { .ptr = (uint8_t *)"X-Original", .len = 10 };
-    wasi_http_types_field_value_t value = { .ptr = (uint8_t *)"original", .len = 8 };
+    wasi_http_types_field_key_t name = { .ptr = (uint8_t *)(uintptr_t)"X-Original", .len = 10 };
+    wasi_http_types_field_value_t value = { .ptr = (uint8_t *)(uintptr_t)"original", .len = 8 };
     wasi_http_types_method_fields_append(borrow, &name, &value, &err);
 
     /* Clone */
@@ -262,8 +265,8 @@ TEST(fields_clone) {
     ASSERT_TRUE(wasi_http_types_method_fields_has(clone_borrow, &name));
 
     /* Modify original */
-    wasi_http_types_field_key_t name2 = { .ptr = (uint8_t *)"X-New", .len = 5 };
-    wasi_http_types_field_value_t value2 = { .ptr = (uint8_t *)"new", .len = 3 };
+    wasi_http_types_field_key_t name2 = { .ptr = (uint8_t *)(uintptr_t)"X-New", .len = 5 };
+    wasi_http_types_field_value_t value2 = { .ptr = (uint8_t *)(uintptr_t)"new", .len = 3 };
     wasi_http_types_method_fields_append(borrow, &name2, &value2, &err);
 
     /* Clone should NOT have the new header */
@@ -278,9 +281,9 @@ TEST(fields_invalid_name) {
     proxy_tuple2_field_key_field_value_t input_entries[1];
 
     /* Invalid name with space */
-    input_entries[0].f0.ptr = (uint8_t *)"Invalid Name";
+    input_entries[0].f0.ptr = (uint8_t *)(uintptr_t)"Invalid Name";
     input_entries[0].f0.len = 12;
-    input_entries[0].f1.ptr = (uint8_t *)"value";
+    input_entries[0].f1.ptr = (uint8_t *)(uintptr_t)"value";
     input_entries[0].f1.len = 5;
 
     proxy_list_tuple2_field_key_field_value_t list = {
@@ -301,9 +304,9 @@ TEST(fields_forbidden_name) {
     proxy_tuple2_field_key_field_value_t input_entries[1];
 
     /* Pseudo-header starting with : */
-    input_entries[0].f0.ptr = (uint8_t *)":path";
+    input_entries[0].f0.ptr = (uint8_t *)(uintptr_t)":path";
     input_entries[0].f0.len = 5;
-    input_entries[0].f1.ptr = (uint8_t *)"/";
+    input_entries[0].f1.ptr = (uint8_t *)(uintptr_t)"/";
     input_entries[0].f1.len = 1;
 
     proxy_list_tuple2_field_key_field_value_t list = {
@@ -373,7 +376,7 @@ TEST(outgoing_request_path) {
     ASSERT_FALSE(wasi_http_types_method_outgoing_request_path_with_query(borrow, &path));
 
     /* Set path */
-    proxy_string_t new_path = { .ptr = (uint8_t *)"/api/test?foo=bar", .len = 17 };
+    proxy_string_t new_path = { .ptr = (uint8_t *)(uintptr_t)"/api/test?foo=bar", .len = 17 };
     ASSERT_TRUE(wasi_http_types_method_outgoing_request_set_path_with_query(borrow, &new_path));
 
     /* Get path back */
@@ -393,7 +396,7 @@ TEST(outgoing_request_authority) {
         wasi_http_types_borrow_outgoing_request(request);
 
     /* Set authority */
-    proxy_string_t authority = { .ptr = (uint8_t *)"example.com:8080", .len = 16 };
+    proxy_string_t authority = { .ptr = (uint8_t *)(uintptr_t)"example.com:8080", .len = 16 };
     ASSERT_TRUE(wasi_http_types_method_outgoing_request_set_authority(borrow, &authority));
 
     /* Get authority back */
@@ -742,8 +745,8 @@ TEST(incoming_request_headers) {
     wasi_http_types_own_fields_t headers = wasi_http_types_constructor_fields();
     wasi_http_types_borrow_fields_t headers_borrow = wasi_http_types_borrow_fields(headers);
 
-    proxy_string_t name = { .ptr = (uint8_t*)"content-type", .len = 12 };
-    wasi_http_types_field_value_t value = { .ptr = (uint8_t*)"application/json", .len = 16 };
+    proxy_string_t name = { .ptr = (uint8_t *)(uintptr_t)"content-type", .len = 12 };
+    wasi_http_types_field_value_t value = { .ptr = (uint8_t *)(uintptr_t)"application/json", .len = 16 };
     proxy_list_field_value_t values = { .ptr = &value, .len = 1 };
     wasi_http_types_header_error_t err;
     wasi_http_types_method_fields_set(headers_borrow, &name, &values, &err);

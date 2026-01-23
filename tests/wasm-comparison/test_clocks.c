@@ -30,7 +30,7 @@ static int tests_failed = 0;
 } while(0)
 
 /* Test: Monotonic clock returns non-zero */
-void test_monotonic_clock_now(void) {
+static void test_monotonic_clock_now(void) {
     struct timespec ts;
     int ret = clock_gettime(CLOCK_MONOTONIC, &ts);
     TEST_ASSERT(ret == 0, "clock_gettime(CLOCK_MONOTONIC) failed");
@@ -44,7 +44,7 @@ void test_monotonic_clock_now(void) {
 }
 
 /* Test: Monotonic clock increases over time */
-void test_monotonic_clock_increases(void) {
+static void test_monotonic_clock_increases(void) {
     struct timespec ts1, ts2;
 
     clock_gettime(CLOCK_MONOTONIC, &ts1);
@@ -68,7 +68,7 @@ void test_monotonic_clock_increases(void) {
 }
 
 /* Test: Clock resolution is reasonable */
-void test_clock_resolution(void) {
+static void test_clock_resolution(void) {
     struct timespec res;
 
 #ifdef __wasi__
@@ -90,7 +90,7 @@ void test_clock_resolution(void) {
 }
 
 /* Test: Wall clock returns reasonable time */
-void test_wall_clock_now(void) {
+static void test_wall_clock_now(void) {
     struct timespec ts;
     int ret = clock_gettime(CLOCK_REALTIME, &ts);
     TEST_ASSERT(ret == 0, "clock_gettime(CLOCK_REALTIME) failed");
@@ -111,7 +111,7 @@ void test_wall_clock_now(void) {
 }
 
 /* Test: nanosleep works */
-void test_nanosleep(void) {
+static void test_nanosleep(void) {
     struct timespec before, after, req, rem;
 
     req.tv_sec = 0;

@@ -17,7 +17,7 @@
 #include <errno.h>
 
 /* Investigation: Directory entry type constants */
-void investigate_dirent_types(void) {
+static void investigate_dirent_types(void) {
     printf("=== Directory Entry Type Constants ===\n");
 #ifdef DT_UNKNOWN
     printf("DT_UNKNOWN = %d\n", DT_UNKNOWN);
@@ -53,7 +53,7 @@ void investigate_dirent_types(void) {
 }
 
 /* Investigation: stat mode bits */
-void investigate_stat_mode(void) {
+static void investigate_stat_mode(void) {
     printf("=== Stat Mode Investigation ===\n");
 
     struct stat st;
@@ -99,7 +99,7 @@ void investigate_stat_mode(void) {
 }
 
 /* Investigation: readdir d_type values */
-void investigate_readdir(void) {
+static void investigate_readdir(void) {
     printf("=== Directory Entry Investigation ===\n");
 
     DIR *dir = opendir(".");
@@ -152,7 +152,7 @@ void investigate_readdir(void) {
 }
 
 /* Investigation: file access flags */
-void investigate_file_flags(void) {
+static void investigate_file_flags(void) {
     printf("=== File Flag Investigation ===\n");
 
     const char *testfile = "flag_test.txt";
@@ -192,7 +192,7 @@ void investigate_file_flags(void) {
 }
 
 /* Investigation: clock constants */
-void investigate_clocks(void) {
+static void investigate_clocks(void) {
     printf("=== Clock Constants ===\n");
 #ifdef CLOCK_REALTIME
     printf("CLOCK_REALTIME  = %d\n", CLOCK_REALTIME);

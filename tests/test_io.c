@@ -23,6 +23,9 @@
 static int tests_passed = 0;
 static int tests_failed = 0;
 
+/* Forward declaration for test runner */
+int run_io_tests(void);
+
 /* Include the generated bindings header */
 #include "../build/c-bindings/io/imports.h"
 

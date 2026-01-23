@@ -22,6 +22,9 @@
 static int tests_passed = 0;
 static int tests_failed = 0;
 
+/* Forward declaration for test runner */
+int run_sockets_tests(void);
+
 /* Include the generated bindings header */
 #include "../build/c-bindings/sockets/imports.h"
 
@@ -268,7 +271,7 @@ TEST(dns_resolve_localhost) {
         wasi_sockets_instance_network_instance_network();
 
     imports_string_t name;
-    name.ptr = (uint8_t *)"localhost";
+    name.ptr = (uint8_t *)(uintptr_t)"localhost";
     name.len = 9;
 
     wasi_sockets_ip_name_lookup_own_resolve_address_stream_t stream;

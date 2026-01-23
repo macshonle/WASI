@@ -140,7 +140,9 @@ static void wasi_handle_free(int32_t handle) {
  */
 
 void imports_string_set(imports_string_t *ret, const char *s) {
-    ret->ptr = (uint8_t *)s;
+    /* Cast through uintptr_t to acknowledge intentional const-to-non-const.
+     * Caller is responsible for ensuring string is not modified through ret. */
+    ret->ptr = (uint8_t *)(uintptr_t)s;
     ret->len = strlen(s);
 }
 
@@ -583,8 +585,10 @@ void wasi_io_poll_poll(wasi_io_poll_list_borrow_pollable_t *in, imports_list_u32
     } else if (min_timeout_ns > 0) {
         /* Only timer pollables, sleep */
         struct timespec ts;
-        ts.tv_sec = (time_t)(min_timeout_ns / 1000000000ULL);
-        ts.tv_nsec = (long)(min_timeout_ns % 1000000000ULL);
+        /* Cast to unsigned is safe since we checked min_timeout_ns > 0 */
+        uint64_t timeout_ns = (uint64_t)min_timeout_ns;
+        ts.tv_sec = (time_t)(timeout_ns / 1000000000ULL);
+        ts.tv_nsec = (long)(timeout_ns % 1000000000ULL);
         nanosleep(&ts, NULL);
     }
 

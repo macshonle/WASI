@@ -18,6 +18,11 @@
 static int tests_passed = 0;
 static int tests_failed = 0;
 
+/* Forward declarations for test runner */
+void run_error_tests(void);
+int get_error_tests_passed(void);
+int get_error_tests_failed(void);
+
 #define TEST_ASSERT(cond, msg) do { \
     if (!(cond)) { \
         printf("    FAIL: %s\n", msg); \
@@ -63,7 +68,7 @@ static bool get_preopen_dir(wasi_filesystem_types_own_descriptor_t *out_dir) {
  * ============================================================================ */
 
 /* Test: Opening non-existent file should fail */
-void test_open_nonexistent_file(void) {
+static void test_open_nonexistent_file(void) {
     wasi_filesystem_types_own_descriptor_t preopen;
     if (!get_preopen_dir(&preopen)) {
         printf("    SKIP: no preopened directories\n");
@@ -74,7 +79,7 @@ void test_open_nonexistent_file(void) {
         wasi_filesystem_types_borrow_descriptor(preopen);
 
     imports_string_t path;
-    path.ptr = (uint8_t *)"this_file_definitely_does_not_exist_12345.txt";
+    path.ptr = (uint8_t *)(uintptr_t)"this_file_definitely_does_not_exist_12345.txt";
     path.len = strlen((char *)path.ptr);
 
     wasi_filesystem_types_open_flags_t open_flags = 0;
@@ -99,7 +104,7 @@ void test_open_nonexistent_file(void) {
  * Note: Skipped in safe mode (requires write permission)
  */
 #ifndef WASI_SAFE_MODE
-void test_create_in_nonexistent_dir(void) {
+static void test_create_in_nonexistent_dir(void) {
     wasi_filesystem_types_own_descriptor_t preopen;
     if (!get_preopen_dir(&preopen)) {
         printf("    SKIP: no preopened directories\n");
@@ -110,7 +115,7 @@ void test_create_in_nonexistent_dir(void) {
         wasi_filesystem_types_borrow_descriptor(preopen);
 
     imports_string_t path;
-    path.ptr = (uint8_t *)"nonexistent_dir/file.txt";
+    path.ptr = (uint8_t *)(uintptr_t)"nonexistent_dir/file.txt";
     path.len = strlen((char *)path.ptr);
 
     wasi_filesystem_types_open_flags_t open_flags =
@@ -134,7 +139,7 @@ void test_create_in_nonexistent_dir(void) {
 #endif
 
 /* Test: Stat on non-existent file should fail */
-void test_stat_nonexistent(void) {
+static void test_stat_nonexistent(void) {
     wasi_filesystem_types_own_descriptor_t preopen;
     if (!get_preopen_dir(&preopen)) {
         printf("    SKIP: no preopened directories\n");
@@ -145,7 +150,7 @@ void test_stat_nonexistent(void) {
         wasi_filesystem_types_borrow_descriptor(preopen);
 
     imports_string_t path;
-    path.ptr = (uint8_t *)"nonexistent_file.txt";
+    path.ptr = (uint8_t *)(uintptr_t)"nonexistent_file.txt";
     path.len = strlen((char *)path.ptr);
 
     wasi_filesystem_types_descriptor_stat_t stat_result;
@@ -166,7 +171,7 @@ void test_stat_nonexistent(void) {
  * Note: Skipped in safe mode (requires write permission)
  */
 #ifndef WASI_SAFE_MODE
-void test_remove_nonexistent_dir(void) {
+static void test_remove_nonexistent_dir(void) {
     wasi_filesystem_types_own_descriptor_t preopen;
     if (!get_preopen_dir(&preopen)) {
         printf("    SKIP: no preopened directories\n");
@@ -177,7 +182,7 @@ void test_remove_nonexistent_dir(void) {
         wasi_filesystem_types_borrow_descriptor(preopen);
 
     imports_string_t path;
-    path.ptr = (uint8_t *)"nonexistent_directory_to_remove";
+    path.ptr = (uint8_t *)(uintptr_t)"nonexistent_directory_to_remove";
     path.len = strlen((char *)path.ptr);
 
     wasi_filesystem_types_error_code_t err;
@@ -197,7 +202,7 @@ void test_remove_nonexistent_dir(void) {
 #ifndef WASI_SAFE_MODE
 
 /* Test: Unlink non-existent file should fail */
-void test_unlink_nonexistent(void) {
+static void test_unlink_nonexistent(void) {
     wasi_filesystem_types_own_descriptor_t preopen;
     if (!get_preopen_dir(&preopen)) {
         printf("    SKIP: no preopened directories\n");
@@ -208,7 +213,7 @@ void test_unlink_nonexistent(void) {
         wasi_filesystem_types_borrow_descriptor(preopen);
 
     imports_string_t path;
-    path.ptr = (uint8_t *)"nonexistent_file_to_unlink.txt";
+    path.ptr = (uint8_t *)(uintptr_t)"nonexistent_file_to_unlink.txt";
     path.len = strlen((char *)path.ptr);
 
     wasi_filesystem_types_error_code_t err;
@@ -224,7 +229,7 @@ void test_unlink_nonexistent(void) {
 }
 
 /* Test: Remove directory that is not empty should fail */
-void test_remove_nonempty_dir(void) {
+static void test_remove_nonempty_dir(void) {
     wasi_filesystem_types_own_descriptor_t preopen;
     if (!get_preopen_dir(&preopen)) {
         printf("    SKIP: no preopened directories\n");
@@ -236,7 +241,7 @@ void test_remove_nonempty_dir(void) {
 
     /* Create a directory */
     imports_string_t dirname;
-    dirname.ptr = (uint8_t *)"test_nonempty_dir";
+    dirname.ptr = (uint8_t *)(uintptr_t)"test_nonempty_dir";
     dirname.len = strlen((char *)dirname.ptr);
 
     wasi_filesystem_types_error_code_t err;
@@ -244,7 +249,7 @@ void test_remove_nonempty_dir(void) {
 
     /* Create a file inside it */
     imports_string_t file_path;
-    file_path.ptr = (uint8_t *)"test_nonempty_dir/file_inside.txt";
+    file_path.ptr = (uint8_t *)(uintptr_t)"test_nonempty_dir/file_inside.txt";
     file_path.len = strlen((char *)file_path.ptr);
 
     wasi_filesystem_types_own_descriptor_t file;
@@ -277,7 +282,7 @@ void test_remove_nonempty_dir(void) {
 }
 
 /* Test: Read from write-only file should fail */
-void test_read_writeonly_file(void) {
+static void test_read_writeonly_file(void) {
     wasi_filesystem_types_own_descriptor_t preopen;
     if (!get_preopen_dir(&preopen)) {
         printf("    SKIP: no preopened directories\n");
@@ -289,7 +294,7 @@ void test_read_writeonly_file(void) {
 
     /* Create a write-only file */
     imports_string_t path;
-    path.ptr = (uint8_t *)"test_writeonly.txt";
+    path.ptr = (uint8_t *)(uintptr_t)"test_writeonly.txt";
     path.len = strlen((char *)path.ptr);
 
     wasi_filesystem_types_own_descriptor_t file;
@@ -326,7 +331,7 @@ void test_read_writeonly_file(void) {
 }
 
 /* Test: Write to read-only file should fail */
-void test_write_readonly_file(void) {
+static void test_write_readonly_file(void) {
     wasi_filesystem_types_own_descriptor_t preopen;
     if (!get_preopen_dir(&preopen)) {
         printf("    SKIP: no preopened directories\n");
@@ -338,7 +343,7 @@ void test_write_readonly_file(void) {
 
     /* First create a file */
     imports_string_t path;
-    path.ptr = (uint8_t *)"test_readonly.txt";
+    path.ptr = (uint8_t *)(uintptr_t)"test_readonly.txt";
     path.len = strlen((char *)path.ptr);
 
     wasi_filesystem_types_own_descriptor_t file_write;
@@ -372,7 +377,7 @@ void test_write_readonly_file(void) {
 
     /* Try to write to read-only file */
     imports_list_u8_t write_buf;
-    write_buf.ptr = (uint8_t *)"test data";
+    write_buf.ptr = (uint8_t *)(uintptr_t)"test data";
     write_buf.len = 9;
 
     uint64_t written;
@@ -392,7 +397,7 @@ void test_write_readonly_file(void) {
 }
 
 /* Test: Read at offset past end of file */
-void test_read_past_eof(void) {
+static void test_read_past_eof(void) {
     wasi_filesystem_types_own_descriptor_t preopen;
     if (!get_preopen_dir(&preopen)) {
         printf("    SKIP: no preopened directories\n");
@@ -404,7 +409,7 @@ void test_read_past_eof(void) {
 
     /* Create a test file */
     imports_string_t path;
-    path.ptr = (uint8_t *)"test_read_eof.txt";
+    path.ptr = (uint8_t *)(uintptr_t)"test_read_eof.txt";
     path.len = strlen((char *)path.ptr);
 
     wasi_filesystem_types_own_descriptor_t file;
@@ -426,7 +431,7 @@ void test_read_past_eof(void) {
 
     /* Write some data */
     imports_list_u8_t write_buf;
-    write_buf.ptr = (uint8_t *)"0123456789";
+    write_buf.ptr = (uint8_t *)(uintptr_t)"0123456789";
     write_buf.len = 10;
 
     uint64_t written;
@@ -454,7 +459,7 @@ void test_read_past_eof(void) {
 }
 
 /* Test: Try to create directory that already exists */
-void test_mkdir_existing(void) {
+static void test_mkdir_existing(void) {
     wasi_filesystem_types_own_descriptor_t preopen;
     if (!get_preopen_dir(&preopen)) {
         printf("    SKIP: no preopened directories\n");
@@ -465,7 +470,7 @@ void test_mkdir_existing(void) {
         wasi_filesystem_types_borrow_descriptor(preopen);
 
     imports_string_t dirname;
-    dirname.ptr = (uint8_t *)"test_mkdir_existing";
+    dirname.ptr = (uint8_t *)(uintptr_t)"test_mkdir_existing";
     dirname.len = strlen((char *)dirname.ptr);
 
     wasi_filesystem_types_error_code_t err;
@@ -489,7 +494,7 @@ void test_mkdir_existing(void) {
 }
 
 /* Test: Truncate file to larger size */
-void test_truncate_extend(void) {
+static void test_truncate_extend(void) {
     wasi_filesystem_types_own_descriptor_t preopen;
     if (!get_preopen_dir(&preopen)) {
         printf("    SKIP: no preopened directories\n");
@@ -500,7 +505,7 @@ void test_truncate_extend(void) {
         wasi_filesystem_types_borrow_descriptor(preopen);
 
     imports_string_t path;
-    path.ptr = (uint8_t *)"test_truncate_extend.txt";
+    path.ptr = (uint8_t *)(uintptr_t)"test_truncate_extend.txt";
     path.len = strlen((char *)path.ptr);
 
     wasi_filesystem_types_own_descriptor_t file;
@@ -522,7 +527,7 @@ void test_truncate_extend(void) {
 
     /* Write some data */
     imports_list_u8_t write_buf;
-    write_buf.ptr = (uint8_t *)"hello";
+    write_buf.ptr = (uint8_t *)(uintptr_t)"hello";
     write_buf.len = 5;
 
     uint64_t written;
@@ -551,7 +556,7 @@ void test_truncate_extend(void) {
 }
 
 /* Test: Rename non-existent file should fail */
-void test_rename_nonexistent(void) {
+static void test_rename_nonexistent(void) {
     wasi_filesystem_types_own_descriptor_t preopen;
     if (!get_preopen_dir(&preopen)) {
         printf("    SKIP: no preopened directories\n");
@@ -562,11 +567,11 @@ void test_rename_nonexistent(void) {
         wasi_filesystem_types_borrow_descriptor(preopen);
 
     imports_string_t src_path;
-    src_path.ptr = (uint8_t *)"nonexistent_source_file.txt";
+    src_path.ptr = (uint8_t *)(uintptr_t)"nonexistent_source_file.txt";
     src_path.len = strlen((char *)src_path.ptr);
 
     imports_string_t dst_path;
-    dst_path.ptr = (uint8_t *)"destination_file.txt";
+    dst_path.ptr = (uint8_t *)(uintptr_t)"destination_file.txt";
     dst_path.len = strlen((char *)dst_path.ptr);
 
     wasi_filesystem_types_error_code_t err;

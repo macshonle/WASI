@@ -1868,25 +1868,29 @@ bool wasi_sockets_ip_name_lookup_method_resolve_address_stream_resolve_next_addr
     ret->is_some = true;
 
     if (ai->ai_family == AF_INET) {
-        struct sockaddr_in *sin = (struct sockaddr_in *)ai->ai_addr;
+        /* Use memcpy to avoid alignment issues with sockaddr cast */
+        struct sockaddr_in sin;
+        memcpy(&sin, ai->ai_addr, sizeof(sin));
         ret->val.tag = WASI_SOCKETS_NETWORK_IP_ADDRESS_IPV4;
-        uint32_t a = ntohl(sin->sin_addr.s_addr);
-        ret->val.val.ipv4.f0 = (a >> 24) & 0xff;
-        ret->val.val.ipv4.f1 = (a >> 16) & 0xff;
-        ret->val.val.ipv4.f2 = (a >> 8) & 0xff;
-        ret->val.val.ipv4.f3 = a & 0xff;
+        uint32_t a = ntohl(sin.sin_addr.s_addr);
+        ret->val.val.ipv4.f0 = (uint8_t)((a >> 24) & 0xff);
+        ret->val.val.ipv4.f1 = (uint8_t)((a >> 16) & 0xff);
+        ret->val.val.ipv4.f2 = (uint8_t)((a >> 8) & 0xff);
+        ret->val.val.ipv4.f3 = (uint8_t)(a & 0xff);
     } else {
-        struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)ai->ai_addr;
+        /* Use memcpy to avoid alignment issues with sockaddr cast */
+        struct sockaddr_in6 sin6;
+        memcpy(&sin6, ai->ai_addr, sizeof(sin6));
         ret->val.tag = WASI_SOCKETS_NETWORK_IP_ADDRESS_IPV6;
-        uint16_t *a = (uint16_t *)&sin6->sin6_addr;
-        ret->val.val.ipv6.f0 = ntohs(a[0]);
-        ret->val.val.ipv6.f1 = ntohs(a[1]);
-        ret->val.val.ipv6.f2 = ntohs(a[2]);
-        ret->val.val.ipv6.f3 = ntohs(a[3]);
-        ret->val.val.ipv6.f4 = ntohs(a[4]);
-        ret->val.val.ipv6.f5 = ntohs(a[5]);
-        ret->val.val.ipv6.f6 = ntohs(a[6]);
-        ret->val.val.ipv6.f7 = ntohs(a[7]);
+        const uint8_t *bytes = sin6.sin6_addr.s6_addr;
+        ret->val.val.ipv6.f0 = (uint16_t)((bytes[0] << 8) | bytes[1]);
+        ret->val.val.ipv6.f1 = (uint16_t)((bytes[2] << 8) | bytes[3]);
+        ret->val.val.ipv6.f2 = (uint16_t)((bytes[4] << 8) | bytes[5]);
+        ret->val.val.ipv6.f3 = (uint16_t)((bytes[6] << 8) | bytes[7]);
+        ret->val.val.ipv6.f4 = (uint16_t)((bytes[8] << 8) | bytes[9]);
+        ret->val.val.ipv6.f5 = (uint16_t)((bytes[10] << 8) | bytes[11]);
+        ret->val.val.ipv6.f6 = (uint16_t)((bytes[12] << 8) | bytes[13]);
+        ret->val.val.ipv6.f7 = (uint16_t)((bytes[14] << 8) | bytes[15]);
     }
 
     return true;

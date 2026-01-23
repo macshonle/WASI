@@ -34,7 +34,7 @@ static int tests_failed = 0;
 } while(0)
 
 /* Test: Current working directory exists */
-void test_cwd_exists(void) {
+static void test_cwd_exists(void) {
     char buf[4096];
     char *cwd = getcwd(buf, sizeof(buf));
     TEST_ASSERT(cwd != NULL, "getcwd failed");
@@ -43,7 +43,7 @@ void test_cwd_exists(void) {
 }
 
 /* Test: Can stat current directory */
-void test_stat_cwd(void) {
+static void test_stat_cwd(void) {
     struct stat st;
     int ret = stat(".", &st);
     TEST_ASSERT(ret == 0, "stat(.) failed");
@@ -53,7 +53,7 @@ void test_stat_cwd(void) {
 }
 
 /* Test: Can read directory entries */
-void test_read_directory(void) {
+static void test_read_directory(void) {
     DIR *dir = opendir(".");
     TEST_ASSERT(dir != NULL, "opendir(.) failed");
 
@@ -73,7 +73,7 @@ void test_read_directory(void) {
 }
 
 /* Test: Can create and remove directory */
-void test_create_remove_directory(void) {
+static void test_create_remove_directory(void) {
     const char *dirname = "test_wasi_temp_dir";
 
     /* Remove if exists */
@@ -101,7 +101,7 @@ void test_create_remove_directory(void) {
 }
 
 /* Test: Can create, write, read, and delete file */
-void test_file_operations(void) {
+static void test_file_operations(void) {
     const char *filename = "test_wasi_temp_file.txt";
     const char *content = "Hello from WASI test!\n";
 
@@ -143,7 +143,7 @@ void test_file_operations(void) {
 }
 
 /* Test: lseek works correctly */
-void test_lseek(void) {
+static void test_lseek(void) {
     const char *filename = "test_wasi_seek.txt";
     const char *content = "0123456789";
 
@@ -184,7 +184,7 @@ void test_lseek(void) {
 }
 
 /* Test: File truncation */
-void test_truncate(void) {
+static void test_truncate(void) {
     const char *filename = "test_wasi_trunc.txt";
     const char *content = "0123456789ABCDEF";
 

@@ -34,6 +34,25 @@
 #include "../../build/c-bindings/http/proxy.h"
 
 /* ============================================================================
+ * Forward declarations for helper functions
+ * ============================================================================
+ */
+
+/* Helper functions for building incoming handler applications (testing) */
+wasi_http_types_own_incoming_request_t http_create_incoming_request(
+    wasi_http_types_method_t method,
+    const char *path,
+    const char *authority,
+    wasi_http_types_own_fields_t headers
+);
+wasi_http_types_own_response_outparam_t http_create_response_outparam(void);
+bool http_response_outparam_is_set(wasi_http_types_borrow_response_outparam_t outparam);
+bool http_response_outparam_get_response(
+    wasi_http_types_borrow_response_outparam_t outparam,
+    wasi_http_types_own_outgoing_response_t *response
+);
+
+/* ============================================================================
  * Handle Management
  * ============================================================================
  */
@@ -285,7 +304,7 @@ bool wasi_http_types_static_fields_from_list(
             return false;
         }
         for (size_t j = 0; j < entry->f0.len; j++) {
-            name[j] = tolower(entry->f0.ptr[j]);
+            name[j] = (char)tolower((unsigned char)entry->f0.ptr[j]);
         }
         name[entry->f0.len] = '\0';
 
@@ -535,7 +554,7 @@ bool wasi_http_types_method_fields_append(
         return false;
     }
     for (size_t i = 0; i < name->len; i++) {
-        name_copy[i] = tolower(name->ptr[i]);
+        name_copy[i] = (char)tolower((unsigned char)name->ptr[i]);
     }
     name_copy[name->len] = '\0';
 
@@ -1646,7 +1665,9 @@ typedef struct {
 } http_incoming_response_resource_t;
 
 static http_incoming_response_resource_t *incoming_response_table[MAX_HTTP_HANDLES];
+#ifndef WASI_SAFE_MODE
 static int32_t next_incoming_response_handle = 1;
+#endif
 
 static http_incoming_response_resource_t *get_incoming_response(int32_t handle) {
     if (handle <= 0 || handle >= MAX_HTTP_HANDLES) {
@@ -1885,6 +1906,7 @@ typedef struct {
 } http_incoming_body_resource_t;
 
 static http_incoming_body_resource_t *incoming_body_table[MAX_HTTP_HANDLES];
+#ifndef WASI_SAFE_MODE
 static int32_t next_incoming_body_handle = 1;
 
 static int32_t alloc_incoming_body(void) {
@@ -1906,6 +1928,7 @@ static int32_t alloc_incoming_body(void) {
     incoming_body_table[handle] = body;
     return handle;
 }
+#endif /* !WASI_SAFE_MODE */
 
 static http_incoming_body_resource_t *get_incoming_body(int32_t handle) {
     if (handle <= 0 || handle >= MAX_HTTP_HANDLES) {
@@ -1914,6 +1937,7 @@ static http_incoming_body_resource_t *get_incoming_body(int32_t handle) {
     return incoming_body_table[handle];
 }
 
+#ifndef WASI_SAFE_MODE
 /* Set incoming body data (called during response parsing) */
 static void incoming_body_set_data(http_incoming_body_resource_t *body,
                                    uint8_t *data, size_t len) {
@@ -1921,6 +1945,7 @@ static void incoming_body_set_data(http_incoming_body_resource_t *body,
     body->buffer_len = len;
     body->read_pos = 0;
 }
+#endif /* !WASI_SAFE_MODE */
 
 /* Get input stream for reading */
 bool wasi_http_types_method_incoming_body_stream(
@@ -2060,6 +2085,8 @@ typedef struct {
 } http_future_incoming_response_resource_t;
 
 static http_future_incoming_response_resource_t *future_response_table[MAX_HTTP_HANDLES];
+
+#ifndef WASI_SAFE_MODE
 static int32_t next_future_response_handle = 1;
 
 static int32_t alloc_future_response(void) {
@@ -2075,6 +2102,7 @@ static int32_t alloc_future_response(void) {
     future_response_table[handle] = fr;
     return handle;
 }
+#endif /* !WASI_SAFE_MODE */
 
 static http_future_incoming_response_resource_t *get_future_response(int32_t handle) {
     if (handle <= 0 || handle >= MAX_HTTP_HANDLES) {
@@ -2147,6 +2175,9 @@ wasi_http_types_borrow_future_incoming_response_t wasi_http_types_borrow_future_
  * ============================================================================
  */
 
+#ifndef WASI_SAFE_MODE
+/* Network code only compiled when not in safe mode */
+
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
@@ -2184,7 +2215,7 @@ static bool parse_authority(const char *authority, size_t len,
     uint16_t port = 80;  /* Default HTTP port */
 
     if (port_sep) {
-        host_len = port_sep - authority;
+        host_len = (size_t)(port_sep - authority);
         port = (uint16_t)atoi(port_sep + 1);
         if (port == 0) port = 80;
     } else {
@@ -2289,7 +2320,7 @@ static bool http_send_request(int fd, http_outgoing_request_resource_t *req,
                       "%s %s HTTP/1.1\r\n", method, path);
 
     /* Send request line */
-    if (send(fd, request_line, len, 0) != len) {
+    if (len < 0 || send(fd, request_line, (size_t)len, 0) != (ssize_t)len) {
         return false;
     }
 
@@ -2298,7 +2329,7 @@ static bool http_send_request(int fd, http_outgoing_request_resource_t *req,
         char host_header[512];
         len = snprintf(host_header, sizeof(host_header),
                       "Host: %s\r\n", req->authority);
-        if (send(fd, host_header, len, 0) != len) {
+        if (len < 0 || send(fd, host_header, (size_t)len, 0) != (ssize_t)len) {
             return false;
         }
     }
@@ -2308,7 +2339,7 @@ static bool http_send_request(int fd, http_outgoing_request_resource_t *req,
         char cl_header[64];
         len = snprintf(cl_header, sizeof(cl_header),
                       "Content-Length: %zu\r\n", body->buffer_len);
-        if (send(fd, cl_header, len, 0) != len) {
+        if (len < 0 || send(fd, cl_header, (size_t)len, 0) != (ssize_t)len) {
             return false;
         }
     }
@@ -2323,7 +2354,7 @@ static bool http_send_request(int fd, http_outgoing_request_resource_t *req,
                           headers->entries[i].name,
                           (int)headers->entries[i].value_len,
                           headers->entries[i].value);
-            if (send(fd, header_line, len, 0) != len) {
+            if (len < 0 || send(fd, header_line, (size_t)len, 0) != (ssize_t)len) {
                 return false;
             }
         }
@@ -2340,7 +2371,7 @@ static bool http_send_request(int fd, http_outgoing_request_resource_t *req,
         while (sent < body->buffer_len) {
             ssize_t n = send(fd, body->buffer + sent, body->buffer_len - sent, 0);
             if (n <= 0) return false;
-            sent += n;
+            sent += (size_t)n;  /* Safe: n > 0 checked above */
         }
     }
 
@@ -2369,7 +2400,7 @@ static ssize_t http_read_line(int fd, char *buf, size_t buf_size, int timeout_ms
         /* Check for end of line */
         if (pos >= 2 && buf[pos-2] == '\r' && buf[pos-1] == '\n') {
             buf[pos-2] = '\0';
-            return pos - 2;
+            return (ssize_t)(pos - 2);
         }
     }
 
@@ -2426,7 +2457,7 @@ static bool http_parse_response(int fd, int timeout_ms,
             char *name = malloc(name_len + 1);
             if (name) {
                 for (size_t i = 0; i < name_len; i++) {
-                    name[i] = tolower((unsigned char)line[i]);
+                    name[i] = (char)tolower((unsigned char)line[i]);
                 }
                 name[name_len] = '\0';
 
@@ -2501,7 +2532,7 @@ static bool http_parse_response(int fd, int timeout_ms,
                     free(body);
                     return false;
                 }
-                read += n;
+                read += (size_t)n;  /* Safe: n > 0 checked above */
             }
             body_len += chunk_size;
 
@@ -2538,7 +2569,7 @@ static bool http_parse_response(int fd, int timeout_ms,
                 free(body);
                 return false;
             }
-            read += n;
+            read += (size_t)n;  /* Safe: n > 0 checked above */
         }
 
         *body_out = body;
@@ -2606,6 +2637,8 @@ static int32_t create_incoming_response(uint16_t status_code,
     incoming_response_table[handle] = resp;
     return handle;
 }
+
+#endif /* !WASI_SAFE_MODE - end of network code */
 
 /* Main HTTP outgoing handler */
 bool wasi_http_outgoing_handler_handle(

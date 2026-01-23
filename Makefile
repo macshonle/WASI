@@ -324,7 +324,46 @@ list:
 
 # Compiler settings
 CC := gcc
-CFLAGS := -Wall -Wextra -std=c11 -I$(BINDINGS_DIR)
+
+# ============================================================================
+# Warning Configuration (strict, catches real bugs)
+# ============================================================================
+
+# Core warnings (always applied)
+CFLAGS_WARN_CORE := -Wall -Wextra -Wpedantic
+
+# Bug detection warnings
+CFLAGS_WARN_BUGS := \
+    -Wformat=2 \
+    -Wcast-qual \
+    -Wnull-dereference \
+    -Wuninitialized \
+    -Wshadow \
+    -Wundef \
+    -Wpointer-arith \
+    -Wcast-align \
+    -Wwrite-strings \
+    -Wconversion \
+    -Wsign-conversion \
+    -Wmissing-prototypes \
+    -Wstrict-prototypes \
+    -Wswitch-enum
+
+# Warnings promoted to errors
+CFLAGS_WARN_ERROR := \
+    -Werror=return-type \
+    -Werror=implicit-function-declaration \
+    -Werror=incompatible-pointer-types \
+    -Werror=format-security
+
+# Intentional suppressions
+# -Wno-unused-parameter: WASI interfaces require unused params
+# -Wno-gnu-statement-expression-from-macro-expansion: System headers on macOS use GNU extensions
+CFLAGS_SUPPRESS := -Wno-unused-parameter -Wno-gnu-statement-expression-from-macro-expansion
+
+# Combined implementation flags
+CFLAGS := $(CFLAGS_WARN_CORE) $(CFLAGS_WARN_BUGS) $(CFLAGS_WARN_ERROR) \
+          $(CFLAGS_SUPPRESS) -std=c11 -I$(BINDINGS_DIR)
 CFLAGS_DEBUG := $(CFLAGS) -g -O0 -DDEBUG
 CFLAGS_RELEASE := $(CFLAGS) -O2 -DNDEBUG
 # Safe mode: non-destructive operations only (for sandboxed testing)

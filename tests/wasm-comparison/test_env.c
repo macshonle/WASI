@@ -35,7 +35,7 @@ static int tests_failed = 0;
 } while(0)
 
 /* Test: Environment variables accessible */
-void test_environment_accessible(void) {
+static void test_environment_accessible(void) {
     /* Count environment variables */
     int count = 0;
     for (char **env = environ; *env != NULL; env++) {
@@ -59,7 +59,7 @@ void test_environment_accessible(void) {
 }
 
 /* Test: PATH environment variable exists */
-void test_path_env(void) {
+static void test_path_env(void) {
     char *path = getenv("PATH");
 
     /* PATH should exist in most environments */
@@ -76,7 +76,7 @@ void test_path_env(void) {
 }
 
 /* Test: Can set custom environment variable */
-void test_setenv(void) {
+static void test_setenv(void) {
     const char *name = "WASI_TEST_VAR";
     const char *value = "test_value_12345";
 
@@ -100,7 +100,7 @@ void test_setenv(void) {
 }
 
 /* Test: stdin/stdout/stderr file descriptors exist */
-void test_stdio_fds(void) {
+static void test_stdio_fds(void) {
     /* These should always be open */
     TEST_ASSERT(isatty(STDIN_FILENO) >= 0 || errno == ENOTTY,
                 "stdin fd invalid");
@@ -117,7 +117,7 @@ void test_stdio_fds(void) {
 }
 
 /* Test: Can write to stdout */
-void test_stdout_write(void) {
+static void test_stdout_write(void) {
     const char *msg = "    [test output to stdout]\n";
     ssize_t written = write(STDOUT_FILENO, msg, strlen(msg));
     TEST_ASSERT(written == (ssize_t)strlen(msg), "write to stdout failed");
@@ -126,7 +126,7 @@ void test_stdout_write(void) {
 }
 
 /* Test: Can write to stderr */
-void test_stderr_write(void) {
+static void test_stderr_write(void) {
     const char *msg = "    [test output to stderr]\n";
     ssize_t written = write(STDERR_FILENO, msg, strlen(msg));
     TEST_ASSERT(written == (ssize_t)strlen(msg), "write to stderr failed");
@@ -135,7 +135,7 @@ void test_stderr_write(void) {
 }
 
 /* Test: printf/fprintf work */
-void test_formatted_output(void) {
+static void test_formatted_output(void) {
     int n = fprintf(stdout, "    formatted: %d %s %.2f\n", 42, "test", 3.14);
     TEST_ASSERT(n > 0, "fprintf to stdout failed");
 
@@ -146,7 +146,7 @@ void test_formatted_output(void) {
 }
 
 /* Test: fflush works */
-void test_fflush(void) {
+static void test_fflush(void) {
     printf("    before flush");
     int ret = fflush(stdout);
     printf(" - after flush\n");
@@ -160,7 +160,7 @@ static int saved_argc;
 static char **saved_argv;
 
 /* Test: Command line arguments accessible */
-void test_arguments(void) {
+static void test_arguments(void) {
     TEST_ASSERT(saved_argc >= 1, "no arguments (not even program name)");
     TEST_ASSERT(saved_argv != NULL, "argv is NULL");
     TEST_ASSERT(saved_argv[0] != NULL, "argv[0] is NULL");

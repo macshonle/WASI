@@ -144,7 +144,7 @@ int wasi_platform_poll(int *fds, size_t nfds, int64_t timeout,
         }
     }
 
-    int result = poll(pfds, nfds, timeout_ms);
+    int result = poll(pfds, (nfds_t)nfds, timeout_ms);
     if (result < 0) {
         free(pfds);
         return -errno;

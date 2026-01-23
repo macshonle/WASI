@@ -58,7 +58,7 @@ static int get_random_bytes(void *buf, size_t len) {
 }
 
 /* Test: Random bytes are generated */
-void test_random_bytes_generated(void) {
+static void test_random_bytes_generated(void) {
     uint8_t buf[32];
     memset(buf, 0, sizeof(buf));
 
@@ -79,7 +79,7 @@ void test_random_bytes_generated(void) {
 }
 
 /* Test: Consecutive calls produce different values */
-void test_random_not_constant(void) {
+static void test_random_not_constant(void) {
     uint64_t a, b;
 
     get_random_bytes(&a, sizeof(a));
@@ -90,7 +90,7 @@ void test_random_not_constant(void) {
 }
 
 /* Test: Random distribution is reasonable (chi-square-like test) */
-void test_random_distribution(void) {
+static void test_random_distribution(void) {
     int buckets[256] = {0};
     uint8_t buf[2560];  /* 10 samples per bucket on average */
 
@@ -114,7 +114,7 @@ void test_random_distribution(void) {
 }
 
 /* Test: Zero-length request succeeds */
-void test_random_zero_length(void) {
+static void test_random_zero_length(void) {
 #ifdef __wasi__
     /* Skip: Wasmtime's WASI adapter traps on zero-length random_get requests.
      * This is a known limitation of the adapter, not a WASI spec issue. */
@@ -130,7 +130,7 @@ void test_random_zero_length(void) {
 }
 
 /* Test: Large random request */
-void test_random_large(void) {
+static void test_random_large(void) {
     size_t size = 65536;  /* 64KB */
     uint8_t *buf = (uint8_t *)malloc(size);
     TEST_ASSERT(buf != NULL, "malloc failed");
