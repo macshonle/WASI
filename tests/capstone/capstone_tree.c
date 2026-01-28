@@ -55,7 +55,12 @@ static int tests_failed = 0;
     tests_failed++; \
 } while(0)
 
-#define REPORT_INFO(fmt, ...) printf("    " fmt "\n", ##__VA_ARGS__)
+/* Use printf directly to keep format checking at call sites. */
+#define REPORT_INFO(...) do { \
+    printf("    "); \
+    printf(__VA_ARGS__); \
+    printf("\n"); \
+} while(0)
 
 /* Statistics collected during traversal */
 typedef struct {
@@ -107,7 +112,9 @@ static int create_file(const char *path, const char *content, size_t len) {
 
 /* Compare function for qsort on strings */
 static int cmp_strings(const void *a, const void *b) {
-    return strcmp(*(const char **)a, *(const char **)b);
+    const char *const *sa = (const char *const *)a;
+    const char *const *sb = (const char *const *)b;
+    return strcmp(*sa, *sb);
 }
 
 /* ============================================================================

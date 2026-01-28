@@ -14,13 +14,9 @@
  */
 
 /* Feature test macros must come first */
-#ifdef __APPLE__
-    #define _DARWIN_C_SOURCE  /* Enable BSD extensions on macOS (st_*timespec, O_NOFOLLOW) */
-#endif
 #ifdef __linux__
     #define _GNU_SOURCE  /* Enable GNU extensions on Linux */
 #endif
-#define _POSIX_C_SOURCE 200809L
 
 #include <stdio.h>   /* renameat is declared here in POSIX */
 #include <stdint.h>
@@ -41,6 +37,10 @@
 
 /* Include the generated bindings header */
 #include "../../build/c-bindings/filesystem/imports.h"
+
+WASI_ABI_CHECK_PTR_LEN_TYPE(imports_string_t);
+WASI_ABI_CHECK_PTR_LEN_TYPE(imports_list_u8_t);
+WASI_ABI_CHECK_PTR_LEN_TYPE(wasi_filesystem_preopens_list_tuple2_own_descriptor_string_t);
 
 /* External declarations from io.c */
 extern int32_t wasi_io_streams_create_input_stream(int fd, bool owns_fd);
@@ -151,6 +151,7 @@ static wasi_filesystem_types_error_code_t errno_to_error_code(int err) {
  */
 
 static char *wasi_string_to_cstr(imports_string_t *str) {
+    wasi_utf8_validate_or_abort(str->ptr, str->len);
     char *cstr = (char *)malloc(str->len + 1);
     if (cstr) {
         memcpy(cstr, str->ptr, str->len);
@@ -161,8 +162,8 @@ static char *wasi_string_to_cstr(imports_string_t *str) {
 
 __attribute__((__weak__))
 void imports_string_free(imports_string_t *ret) {
-    if (ret->len > 0 && ret->ptr) {
-        free(ret->ptr);
+    if (ret->ptr) {
+        wasi_cabi_free(ret->ptr, 1);
     }
     ret->ptr = NULL;
     ret->len = 0;
@@ -170,8 +171,8 @@ void imports_string_free(imports_string_t *ret) {
 
 __attribute__((__weak__))
 void imports_list_u8_free(imports_list_u8_t *ptr) {
-    if (ptr->len > 0 && ptr->ptr) {
-        free(ptr->ptr);
+    if (ptr->ptr) {
+        wasi_cabi_free(ptr->ptr, 1);
     }
     ptr->ptr = NULL;
     ptr->len = 0;
@@ -593,7 +594,7 @@ bool wasi_filesystem_types_method_descriptor_read(
     }
 
     size_t to_read = (length > 65536) ? 65536 : (size_t)length;
-    uint8_t *buf = (uint8_t *)malloc(to_read);
+    uint8_t *buf = (uint8_t *)wasi_cabi_alloc(1, to_read);
     if (!buf) {
         *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_INSUFFICIENT_MEMORY;
         return false;
@@ -601,11 +602,14 @@ bool wasi_filesystem_types_method_descriptor_read(
 
     ssize_t nread = pread(desc->fd, buf, to_read, (off_t)offset);
     if (nread < 0) {
-        free(buf);
+        wasi_cabi_free(buf, 1);
         *err = errno_to_error_code(errno);
         return false;
     }
 
+    if ((size_t)nread < to_read) {
+        buf = (uint8_t *)cabi_realloc(buf, to_read, 1, (size_t)nread);
+    }
     ret->f0.ptr = buf;
     ret->f0.len = (size_t)nread;
     ret->f1 = (nread == 0);  /* EOF if 0 bytes read */
@@ -999,11 +1003,15 @@ bool wasi_filesystem_types_method_descriptor_readlink_at(
         return false;
     }
 
-    ret->ptr = (uint8_t *)malloc((size_t)len);
-    if (!ret->ptr) {
+    if (len > (ssize_t)UINT32_MAX) {
         *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_INSUFFICIENT_MEMORY;
         return false;
     }
+    if (!wasi_cabi_alloc_string((size_t)len, &ret->ptr)) {
+        *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_INSUFFICIENT_MEMORY;
+        return false;
+    }
+    wasi_utf8_validate_or_abort((const uint8_t *)buf, (size_t)len);
     memcpy(ret->ptr, buf, (size_t)len);
     ret->len = (size_t)len;
     return true;
@@ -1283,11 +1291,11 @@ bool wasi_filesystem_types_method_directory_entry_stream_read_directory_entry(
 
     /* Copy name */
     size_t name_len = strlen(entry->d_name);
-    ret->val.name.ptr = (uint8_t *)malloc(name_len);
-    if (!ret->val.name.ptr) {
+    if (!wasi_cabi_alloc_string(name_len, &ret->val.name.ptr)) {
         *err = WASI_FILESYSTEM_TYPES_ERROR_CODE_INSUFFICIENT_MEMORY;
         return false;
     }
+    wasi_utf8_validate_or_abort((const uint8_t *)entry->d_name, name_len);
     memcpy(ret->val.name.ptr, entry->d_name, name_len);
     ret->val.name.len = name_len;
 
@@ -1348,9 +1356,9 @@ void wasi_filesystem_preopens_get_directories(
         return;
     }
 
-    ret->ptr = (wasi_filesystem_preopens_tuple2_own_descriptor_string_t *)malloc(
-        count * sizeof(wasi_filesystem_preopens_tuple2_own_descriptor_string_t));
-    if (!ret->ptr) {
+    if (!wasi_cabi_alloc_list(count, sizeof(wasi_filesystem_preopens_tuple2_own_descriptor_string_t),
+                              WASI_ALIGNOF(wasi_filesystem_preopens_tuple2_own_descriptor_string_t),
+                              (void **)&ret->ptr)) {
         ret->len = 0;
         return;
     }
@@ -1374,12 +1382,13 @@ void wasi_filesystem_preopens_get_directories(
         ret->ptr[idx].f0.__handle = handle;
 
         size_t path_len = strlen(preopens[i].path);
-        ret->ptr[idx].f1.ptr = (uint8_t *)malloc(path_len);
-        if (ret->ptr[idx].f1.ptr) {
-            memcpy(ret->ptr[idx].f1.ptr, preopens[i].path, path_len);
-            ret->ptr[idx].f1.len = path_len;
-        } else {
+        wasi_utf8_validate_or_abort((const uint8_t *)preopens[i].path, path_len);
+        ret->ptr[idx].f1.len = path_len;
+        if (!wasi_cabi_alloc_string(path_len, &ret->ptr[idx].f1.ptr)) {
+            ret->ptr[idx].f1.ptr = NULL;
             ret->ptr[idx].f1.len = 0;
+        } else if (ret->ptr[idx].f1.ptr) {
+            memcpy(ret->ptr[idx].f1.ptr, preopens[i].path, path_len);
         }
 
         idx++;

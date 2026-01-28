@@ -10,13 +10,9 @@
  */
 
 /* Feature test macros must come first */
-#ifdef __APPLE__
-    #define _DARWIN_C_SOURCE  /* Enable BSD extensions on macOS */
-#endif
 #ifdef __linux__
     #define _GNU_SOURCE  /* Enable GNU extensions on Linux */
 #endif
-#define _POSIX_C_SOURCE 200809L
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -32,6 +28,13 @@
 
 /* Include the generated bindings header */
 #include "../../build/c-bindings/http/proxy.h"
+
+WASI_ABI_CHECK_PTR_LEN_TYPE(proxy_string_t);
+WASI_ABI_CHECK_PTR_LEN_TYPE(proxy_list_u8_t);
+WASI_ABI_CHECK_PTR_LEN_TYPE(proxy_list_u32_t);
+WASI_ABI_CHECK_PTR_LEN_TYPE(proxy_list_field_value_t);
+WASI_ABI_CHECK_PTR_LEN_TYPE(proxy_list_tuple2_field_key_field_value_t);
+WASI_ABI_CHECK_PTR_LEN_TYPE(wasi_http_types_field_value_t);
 
 /* ============================================================================
  * Forward declarations for helper functions
@@ -51,6 +54,26 @@ bool http_response_outparam_get_response(
     wasi_http_types_borrow_response_outparam_t outparam,
     wasi_http_types_own_outgoing_response_t *response
 );
+
+static bool http_copy_utf8_string(uint8_t **dst, size_t *dst_len, const uint8_t *src, size_t len) {
+    wasi_utf8_validate_or_abort(src, len);
+    *dst_len = len;
+    if (!wasi_cabi_alloc_string(len, dst)) {
+        *dst = NULL;
+        *dst_len = 0;
+        return false;
+    }
+    if (*dst) memcpy(*dst, src, len);
+    return true;
+}
+
+static bool http_copy_bytes(uint8_t **dst, size_t len) {
+    if (!wasi_cabi_alloc_list(len, 1, 1, (void **)dst)) {
+        *dst = NULL;
+        return false;
+    }
+    return true;
+}
 
 /* ============================================================================
  * Handle Management
@@ -271,6 +294,8 @@ bool wasi_http_types_static_fields_from_list(
     for (size_t i = 0; i < entries->len; i++) {
         proxy_tuple2_field_key_field_value_t *entry = &entries->ptr[i];
 
+        wasi_utf8_validate_or_abort(entry->f0.ptr, entry->f0.len);
+
         /* Check for forbidden field names first (pseudo-headers starting with ':') */
         if (is_forbidden_field_name(entry->f0.ptr, entry->f0.len)) {
             free_fields_resource(fields);
@@ -339,6 +364,7 @@ void wasi_http_types_method_fields_get(
     wasi_http_types_field_key_t *name,
     proxy_list_field_value_t *ret
 ) {
+    wasi_utf8_validate_or_abort(name->ptr, name->len);
     http_fields_resource_t *fields = get_fields(self.__handle);
     if (!fields) {
         ret->ptr = NULL;
@@ -362,8 +388,9 @@ void wasi_http_types_method_fields_get(
     }
 
     /* Allocate result array */
-    wasi_http_types_field_value_t *values = calloc(count, sizeof(wasi_http_types_field_value_t));
-    if (!values) {
+    wasi_http_types_field_value_t *values = NULL;
+    if (!wasi_cabi_alloc_list(count, sizeof(wasi_http_types_field_value_t),
+                              WASI_ALIGNOF(wasi_http_types_field_value_t), (void **)&values)) {
         ret->ptr = NULL;
         ret->len = 0;
         return;
@@ -375,11 +402,13 @@ void wasi_http_types_method_fields_get(
         if (field_name_equals(fields->entries[i].name, fields->entries[i].name_len,
                               name->ptr, name->len)) {
             if (fields->entries[i].value_len > 0) {
-                values[idx].ptr = malloc(fields->entries[i].value_len);
-                if (values[idx].ptr) {
+                values[idx].len = fields->entries[i].value_len;
+                if (http_copy_bytes(&values[idx].ptr, fields->entries[i].value_len)) {
                     memcpy(values[idx].ptr, fields->entries[i].value,
                            fields->entries[i].value_len);
-                    values[idx].len = fields->entries[i].value_len;
+                } else {
+                    values[idx].ptr = NULL;
+                    values[idx].len = 0;
                 }
             } else {
                 values[idx].ptr = NULL;
@@ -398,6 +427,7 @@ bool wasi_http_types_method_fields_has(
     wasi_http_types_borrow_fields_t self,
     wasi_http_types_field_key_t *name
 ) {
+    wasi_utf8_validate_or_abort(name->ptr, name->len);
     http_fields_resource_t *fields = get_fields(self.__handle);
     if (!fields) {
         return false;
@@ -425,6 +455,7 @@ bool wasi_http_types_method_fields_set(
     proxy_list_field_value_t *value,
     wasi_http_types_header_error_t *err
 ) {
+    wasi_utf8_validate_or_abort(name->ptr, name->len);
     http_fields_resource_t *fields = get_fields(self.__handle);
     if (!fields) {
         err->tag = WASI_HTTP_TYPES_HEADER_ERROR_INVALID_SYNTAX;
@@ -474,6 +505,7 @@ bool wasi_http_types_method_fields_delete(
     wasi_http_types_field_key_t *name,
     wasi_http_types_header_error_t *err
 ) {
+    wasi_utf8_validate_or_abort(name->ptr, name->len);
     http_fields_resource_t *fields = get_fields(self.__handle);
     if (!fields) {
         err->tag = WASI_HTTP_TYPES_HEADER_ERROR_INVALID_SYNTAX;
@@ -513,6 +545,7 @@ bool wasi_http_types_method_fields_append(
     wasi_http_types_field_value_t *value,
     wasi_http_types_header_error_t *err
 ) {
+    wasi_utf8_validate_or_abort(name->ptr, name->len);
     http_fields_resource_t *fields = get_fields(self.__handle);
     if (!fields) {
         err->tag = WASI_HTTP_TYPES_HEADER_ERROR_INVALID_SYNTAX;
@@ -591,9 +624,9 @@ void wasi_http_types_method_fields_entries(
         return;
     }
 
-    proxy_tuple2_field_key_field_value_t *entries =
-        calloc(fields->count, sizeof(proxy_tuple2_field_key_field_value_t));
-    if (!entries) {
+    proxy_tuple2_field_key_field_value_t *entries = NULL;
+    if (!wasi_cabi_alloc_list(fields->count, sizeof(proxy_tuple2_field_key_field_value_t),
+                              WASI_ALIGNOF(proxy_tuple2_field_key_field_value_t), (void **)&entries)) {
         ret->ptr = NULL;
         ret->len = 0;
         return;
@@ -601,19 +634,19 @@ void wasi_http_types_method_fields_entries(
 
     for (size_t i = 0; i < fields->count; i++) {
         /* Copy name */
-        entries[i].f0.ptr = malloc(fields->entries[i].name_len);
-        if (entries[i].f0.ptr) {
-            memcpy(entries[i].f0.ptr, fields->entries[i].name, fields->entries[i].name_len);
-            entries[i].f0.len = fields->entries[i].name_len;
-        }
+        (void)http_copy_utf8_string(&entries[i].f0.ptr, &entries[i].f0.len,
+                                    (const uint8_t *)fields->entries[i].name,
+                                    fields->entries[i].name_len);
 
         /* Copy value */
         if (fields->entries[i].value_len > 0) {
-            entries[i].f1.ptr = malloc(fields->entries[i].value_len);
-            if (entries[i].f1.ptr) {
+            entries[i].f1.len = fields->entries[i].value_len;
+            if (http_copy_bytes(&entries[i].f1.ptr, fields->entries[i].value_len)) {
                 memcpy(entries[i].f1.ptr, fields->entries[i].value,
                        fields->entries[i].value_len);
-                entries[i].f1.len = fields->entries[i].value_len;
+            } else {
+                entries[i].f1.ptr = NULL;
+                entries[i].f1.len = 0;
             }
         } else {
             entries[i].f1.ptr = NULL;
@@ -885,14 +918,8 @@ void wasi_http_types_method_outgoing_request_method(
 
     ret->tag = req->method.tag;
     if (req->method.tag == WASI_HTTP_TYPES_METHOD_OTHER) {
-        /* Copy the string */
-        ret->val.other.ptr = malloc(req->method.val.other.len);
-        if (ret->val.other.ptr) {
-            memcpy(ret->val.other.ptr, req->method.val.other.ptr, req->method.val.other.len);
-            ret->val.other.len = req->method.val.other.len;
-        } else {
-            ret->val.other.len = 0;
-        }
+        (void)http_copy_utf8_string(&ret->val.other.ptr, &ret->val.other.len,
+                                    req->method.val.other.ptr, req->method.val.other.len);
     }
 }
 
@@ -908,6 +935,7 @@ bool wasi_http_types_method_outgoing_request_set_method(
 
     /* Validate OTHER method string */
     if (method->tag == WASI_HTTP_TYPES_METHOD_OTHER) {
+        wasi_utf8_validate_or_abort(method->val.other.ptr, method->val.other.len);
         if (!is_valid_method_string(method->val.other.ptr, method->val.other.len)) {
             return false;
         }
@@ -943,12 +971,10 @@ bool wasi_http_types_method_outgoing_request_path_with_query(
         return false;  /* None */
     }
 
-    ret->ptr = malloc(req->path_len);
-    if (!ret->ptr) {
+    if (!http_copy_utf8_string(&ret->ptr, &ret->len,
+                               (const uint8_t *)req->path_with_query, req->path_len)) {
         return false;
     }
-    memcpy(ret->ptr, req->path_with_query, req->path_len);
-    ret->len = req->path_len;
     return true;
 }
 
@@ -975,6 +1001,7 @@ bool wasi_http_types_method_outgoing_request_set_path_with_query(
     }
 
     /* Validate */
+    wasi_utf8_validate_or_abort(maybe_path_with_query->ptr, maybe_path_with_query->len);
     if (!is_valid_path_with_query(maybe_path_with_query->ptr, maybe_path_with_query->len)) {
         return false;
     }
@@ -1003,13 +1030,8 @@ bool wasi_http_types_method_outgoing_request_scheme(
 
     ret->tag = req->scheme.tag;
     if (req->scheme.tag == WASI_HTTP_TYPES_SCHEME_OTHER) {
-        ret->val.other.ptr = malloc(req->scheme.val.other.len);
-        if (ret->val.other.ptr) {
-            memcpy(ret->val.other.ptr, req->scheme.val.other.ptr, req->scheme.val.other.len);
-            ret->val.other.len = req->scheme.val.other.len;
-        } else {
-            ret->val.other.len = 0;
-        }
+        (void)http_copy_utf8_string(&ret->val.other.ptr, &ret->val.other.len,
+                                    req->scheme.val.other.ptr, req->scheme.val.other.len);
     }
     return true;
 }
@@ -1039,6 +1061,7 @@ bool wasi_http_types_method_outgoing_request_set_scheme(
 
     /* Validate OTHER scheme string */
     if (maybe_scheme->tag == WASI_HTTP_TYPES_SCHEME_OTHER) {
+        wasi_utf8_validate_or_abort(maybe_scheme->val.other.ptr, maybe_scheme->val.other.len);
         if (!is_valid_scheme_string(maybe_scheme->val.other.ptr, maybe_scheme->val.other.len)) {
             return false;
         }
@@ -1070,12 +1093,10 @@ bool wasi_http_types_method_outgoing_request_authority(
         return false;  /* None */
     }
 
-    ret->ptr = malloc(req->authority_len);
-    if (!ret->ptr) {
+    if (!http_copy_utf8_string(&ret->ptr, &ret->len,
+                               (const uint8_t *)req->authority, req->authority_len)) {
         return false;
     }
-    memcpy(ret->ptr, req->authority, req->authority_len);
-    ret->len = req->authority_len;
     return true;
 }
 
@@ -1102,6 +1123,7 @@ bool wasi_http_types_method_outgoing_request_set_authority(
     }
 
     /* Validate */
+    wasi_utf8_validate_or_abort(maybe_authority->ptr, maybe_authority->len);
     if (!is_valid_authority(maybe_authority->ptr, maybe_authority->len)) {
         return false;
     }
@@ -1548,11 +1570,8 @@ void wasi_http_types_method_incoming_request_method(
     }
     ret->tag = req->method.tag;
     if (req->method.tag == WASI_HTTP_TYPES_METHOD_OTHER) {
-        ret->val.other.ptr = malloc(req->method.val.other.len);
-        if (ret->val.other.ptr) {
-            memcpy(ret->val.other.ptr, req->method.val.other.ptr, req->method.val.other.len);
-            ret->val.other.len = req->method.val.other.len;
-        }
+        (void)http_copy_utf8_string(&ret->val.other.ptr, &ret->val.other.len,
+                                    req->method.val.other.ptr, req->method.val.other.len);
     }
 }
 
@@ -1564,11 +1583,8 @@ bool wasi_http_types_method_incoming_request_path_with_query(
     if (!req || !req->path_with_query) {
         return false;
     }
-    ret->ptr = malloc(req->path_len);
-    if (ret->ptr) {
-        memcpy(ret->ptr, req->path_with_query, req->path_len);
-        ret->len = req->path_len;
-    }
+    (void)http_copy_utf8_string(&ret->ptr, &ret->len,
+                                (const uint8_t *)req->path_with_query, req->path_len);
     return true;
 }
 
@@ -1582,11 +1598,8 @@ bool wasi_http_types_method_incoming_request_scheme(
     }
     ret->tag = req->scheme.tag;
     if (req->scheme.tag == WASI_HTTP_TYPES_SCHEME_OTHER) {
-        ret->val.other.ptr = malloc(req->scheme.val.other.len);
-        if (ret->val.other.ptr) {
-            memcpy(ret->val.other.ptr, req->scheme.val.other.ptr, req->scheme.val.other.len);
-            ret->val.other.len = req->scheme.val.other.len;
-        }
+        (void)http_copy_utf8_string(&ret->val.other.ptr, &ret->val.other.len,
+                                    req->scheme.val.other.ptr, req->scheme.val.other.len);
     }
     return true;
 }
@@ -1599,11 +1612,8 @@ bool wasi_http_types_method_incoming_request_authority(
     if (!req || !req->authority) {
         return false;
     }
-    ret->ptr = malloc(req->authority_len);
-    if (ret->ptr) {
-        memcpy(ret->ptr, req->authority, req->authority_len);
-        ret->len = req->authority_len;
-    }
+    (void)http_copy_utf8_string(&ret->ptr, &ret->len,
+                                (const uint8_t *)req->authority, req->authority_len);
     return true;
 }
 
@@ -2786,8 +2796,8 @@ bool wasi_http_outgoing_handler_handle(
 
 /* Free a field value (byte array) */
 void wasi_http_types_field_value_free(wasi_http_types_field_value_t *ptr) {
-    if (ptr && ptr->len > 0 && ptr->ptr) {
-        free(ptr->ptr);
+    if (ptr && ptr->ptr) {
+        wasi_cabi_free(ptr->ptr, 1);
         ptr->ptr = NULL;
         ptr->len = 0;
     }
@@ -2795,8 +2805,8 @@ void wasi_http_types_field_value_free(wasi_http_types_field_value_t *ptr) {
 
 /* Free a field key (string) */
 void wasi_http_types_field_key_free(wasi_http_types_field_key_t *ptr) {
-    if (ptr && ptr->len > 0 && ptr->ptr) {
-        free(ptr->ptr);
+    if (ptr && ptr->ptr) {
+        wasi_cabi_free(ptr->ptr, 1);
         ptr->ptr = NULL;
         ptr->len = 0;
     }
@@ -2816,7 +2826,7 @@ void proxy_list_field_value_free(proxy_list_field_value_t *ptr) {
         for (size_t i = 0; i < ptr->len; i++) {
             wasi_http_types_field_value_free(&ptr->ptr[i]);
         }
-        free(ptr->ptr);
+        wasi_cabi_free(ptr->ptr, WASI_ALIGNOF(wasi_http_types_field_value_t));
         ptr->ptr = NULL;
         ptr->len = 0;
     }
@@ -2828,7 +2838,7 @@ void proxy_list_tuple2_field_key_field_value_free(proxy_list_tuple2_field_key_fi
         for (size_t i = 0; i < ptr->len; i++) {
             proxy_tuple2_field_key_field_value_free(&ptr->ptr[i]);
         }
-        free(ptr->ptr);
+        wasi_cabi_free(ptr->ptr, WASI_ALIGNOF(proxy_tuple2_field_key_field_value_t));
         ptr->ptr = NULL;
         ptr->len = 0;
     }

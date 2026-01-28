@@ -329,6 +329,15 @@ CC := gcc
 # Warning Configuration (strict, catches real bugs)
 # ============================================================================
 
+# Warning profile:
+#   default - current baseline
+#   llvm    - LLVM-like warning set
+#   strict  - LLVM-like plus clang/GCC extra strict warnings
+WARN_PROFILE ?= default
+
+# Detect clang to enable clang-only warnings
+CC_IS_CLANG := $(shell $(CC) --version 2>/dev/null | grep -i clang >/dev/null && echo 1 || echo 0)
+
 # Core warnings (always applied)
 CFLAGS_WARN_CORE := -Wall -Wextra -Wpedantic
 
@@ -356,6 +365,44 @@ CFLAGS_WARN_ERROR := \
     -Werror=incompatible-pointer-types \
     -Werror=format-security
 
+# LLVM-style extra warnings (additive)
+CFLAGS_WARN_LLVM := \
+    -Wdouble-promotion \
+    -Wfloat-equal \
+    -Wimplicit-fallthrough \
+    -Wmissing-declarations \
+    -Wmissing-noreturn \
+    -Wvla
+
+# Extra strict warnings (clang/GCC specific)
+CFLAGS_WARN_STRICT_GCC := \
+    -Walloca \
+    -Wduplicated-branches \
+    -Wduplicated-cond \
+    -Wformat-overflow=2 \
+    -Wformat-truncation=2 \
+    -Wlogical-op \
+    -Wstringop-overflow=4 \
+    -Wstringop-truncation
+
+# Clang -Weverything is very strict; suppress a few noisy categories
+CFLAGS_WARN_STRICT_CLANG := \
+    -Weverything \
+    -Wno-poison-system-directories \
+    -Wno-unsafe-buffer-usage
+
+# Choose extra warnings based on profile
+CFLAGS_WARN_EXTRA :=
+ifeq ($(WARN_PROFILE),llvm)
+    CFLAGS_WARN_EXTRA := $(CFLAGS_WARN_LLVM)
+else ifeq ($(WARN_PROFILE),strict)
+    ifeq ($(CC_IS_CLANG),1)
+        CFLAGS_WARN_EXTRA := $(CFLAGS_WARN_LLVM) $(CFLAGS_WARN_STRICT_CLANG)
+    else
+        CFLAGS_WARN_EXTRA := $(CFLAGS_WARN_LLVM) $(CFLAGS_WARN_STRICT_GCC)
+    endif
+endif
+
 # Intentional suppressions
 # -Wno-unused-parameter: WASI interfaces require unused params
 # -Wno-gnu-statement-expression-from-macro-expansion: System headers on macOS use GNU extensions
@@ -363,11 +410,20 @@ CFLAGS_SUPPRESS := -Wno-unused-parameter -Wno-gnu-statement-expression-from-macr
 
 # Combined implementation flags
 CFLAGS := $(CFLAGS_WARN_CORE) $(CFLAGS_WARN_BUGS) $(CFLAGS_WARN_ERROR) \
+          $(CFLAGS_WARN_EXTRA) \
           $(CFLAGS_SUPPRESS) -std=c11 -I$(BINDINGS_DIR)
+CFLAGS_WASI_FEATURES := -D_POSIX_C_SOURCE=200809L
+ifeq ($(shell uname -s),Darwin)
+    CFLAGS_WASI_FEATURES += -D_DARWIN_C_SOURCE
+endif
+CFLAGS_WASI := $(CFLAGS) $(CFLAGS_WASI_FEATURES)
 CFLAGS_DEBUG := $(CFLAGS) -g -O0 -DDEBUG
 CFLAGS_RELEASE := $(CFLAGS) -O2 -DNDEBUG
 # Safe mode: non-destructive operations only (for sandboxed testing)
 CFLAGS_SAFE := $(CFLAGS_DEBUG) -DWASI_SAFE_MODE
+CFLAGS_WASI_DEBUG := $(CFLAGS_WASI) -g -O0 -DDEBUG
+CFLAGS_WASI_RELEASE := $(CFLAGS_WASI) -O2 -DNDEBUG
+CFLAGS_WASI_SAFE := $(CFLAGS_WASI_DEBUG) -DWASI_SAFE_MODE
 
 # Source directories
 SRC_DIR := src/wasi
@@ -440,12 +496,12 @@ $(OBJ_DIR):
 # Compile WASI implementation sources
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
 	@echo "  CC $<"
-	@$(CC) $(CFLAGS_DEBUG) -c $< -o $@
+	@$(CC) $(CFLAGS_WASI_DEBUG) -c $< -o $@
 
 # Compile platform sources
 $(OBJ_DIR)/platform_%.o: $(PLATFORM_DIR)/%.c | $(OBJ_DIR)
 	@echo "  CC $<"
-	@$(CC) $(CFLAGS_DEBUG) -c $< -o $@
+	@$(CC) $(CFLAGS_WASI_DEBUG) -c $< -o $@
 
 # Compile test sources (with TEST_RUNNER_MODE to disable individual main functions)
 $(OBJ_DIR)/test_%.o: $(TEST_DIR)/%.c | $(OBJ_DIR)
@@ -553,7 +609,8 @@ $(CAPSTONE_BUILD):
 # IMPORTANT: -O0 is required for WASI builds because wasm-opt (Binaryen) does
 # not support WebAssembly components yet. Higher optimization levels trigger
 # wasm-opt which fails on component binaries.
-CAPSTONE_CFLAGS_COMMON := -Wall -Wextra -O0
+CAPSTONE_CFLAGS_COMMON := $(CFLAGS_WARN_CORE) $(CFLAGS_WARN_BUGS) $(CFLAGS_WARN_ERROR) \
+                          $(CFLAGS_WARN_EXTRA) $(CFLAGS_SUPPRESS) -O0
 CAPSTONE_CFLAGS_NATIVE := $(CAPSTONE_CFLAGS_COMMON) -std=c11 -g
 CAPSTONE_CFLAGS_WASI   := $(CAPSTONE_CFLAGS_COMMON)
 
@@ -588,12 +645,31 @@ build: v0.2.0 build-unit-tests build-comparison build-capstone
 # Test results file for aggregation
 TEST_RESULTS := $(CURDIR)/$(BUILD_DIR)/test_results.txt
 CAPSTONE_TESTENV := $(CURDIR)/$(CAPSTONE_BUILD)/testenv
+TEST_ARTIFACT_FILES := \
+	$(CURDIR)/test_read_eof.txt \
+	$(CURDIR)/test_writeonly.txt \
+	$(CURDIR)/test_readonly.txt \
+	$(CURDIR)/test_truncate_extend.txt \
+	$(CURDIR)/destination_file.txt \
+	$(CURDIR)/investigate_test.txt \
+	$(CURDIR)/flag_test.txt \
+	$(CURDIR)/test_wasi_temp_file.txt \
+	$(CURDIR)/test_wasi_seek.txt \
+	$(CURDIR)/test_wasi_trunc.txt
+TEST_ARTIFACT_DIRS := \
+	$(CURDIR)/test_nonempty_dir \
+	$(CURDIR)/test_mkdir_existing
 
 .PHONY: test
 test: build
 	@rm -f $(TEST_RESULTS)
 	@mkdir -p $(CAPSTONE_TESTENV)
 	@total_pass=0; total_fail=0; \
+	cleanup() { \
+		rm -f $(TEST_ARTIFACT_FILES); \
+		rm -rf $(TEST_ARTIFACT_DIRS) $(CAPSTONE_TESTENV); \
+	}; \
+	trap cleanup EXIT; \
 	\
 	echo ""; \
 	echo "Running unit tests..."; \
@@ -694,12 +770,12 @@ $(SAFE_OBJ_DIR):
 # Compile WASI implementation sources with safe mode
 $(SAFE_OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(SAFE_OBJ_DIR)
 	@echo "  CC [safe] $<"
-	@$(CC) $(CFLAGS_SAFE) -c $< -o $@
+	@$(CC) $(CFLAGS_WASI_SAFE) -c $< -o $@
 
 # Compile platform sources with safe mode
 $(SAFE_OBJ_DIR)/platform_%.o: $(PLATFORM_DIR)/%.c | $(SAFE_OBJ_DIR)
 	@echo "  CC [safe] $<"
-	@$(CC) $(CFLAGS_SAFE) -c $< -o $@
+	@$(CC) $(CFLAGS_WASI_SAFE) -c $< -o $@
 
 # Compile test sources with safe mode
 $(SAFE_OBJ_DIR)/test_%.o: $(TEST_DIR)/%.c | $(SAFE_OBJ_DIR)

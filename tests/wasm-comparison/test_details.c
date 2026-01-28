@@ -5,8 +5,6 @@
  * and Wasmtime's WASI Preview 2 implementation.
  */
 
-#define _GNU_SOURCE
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,8 +59,9 @@ static void investigate_stat_mode(void) {
     /* Current directory */
     if (stat(".", &st) == 0) {
         printf("stat(\".\")\n");
-        printf("  st_mode (raw)  : 0x%x (%o octal)\n", st.st_mode, st.st_mode);
-        printf("  st_mode & 0777 : %03o\n", st.st_mode & 0777);
+        printf("  st_mode (raw)  : 0x%x (%o octal)\n",
+               (unsigned int)st.st_mode, (unsigned int)st.st_mode);
+        printf("  st_mode & 0777 : %03o\n", (unsigned int)(st.st_mode & 0777));
         printf("  S_ISDIR        : %s\n", S_ISDIR(st.st_mode) ? "true" : "false");
         printf("  S_ISREG        : %s\n", S_ISREG(st.st_mode) ? "true" : "false");
         printf("  st_ino         : %lu\n", (unsigned long)st.st_ino);
@@ -84,8 +83,9 @@ static void investigate_stat_mode(void) {
 
         if (stat(testfile, &st) == 0) {
             printf("stat(\"%s\")\n", testfile);
-            printf("  st_mode (raw)  : 0x%x (%o octal)\n", st.st_mode, st.st_mode);
-            printf("  st_mode & 0777 : %03o\n", st.st_mode & 0777);
+            printf("  st_mode (raw)  : 0x%x (%o octal)\n",
+                   (unsigned int)st.st_mode, (unsigned int)st.st_mode);
+            printf("  st_mode & 0777 : %03o\n", (unsigned int)(st.st_mode & 0777));
             printf("  S_ISDIR        : %s\n", S_ISDIR(st.st_mode) ? "true" : "false");
             printf("  S_ISREG        : %s\n", S_ISREG(st.st_mode) ? "true" : "false");
             printf("  st_ino         : %lu\n", (unsigned long)st.st_ino);
@@ -170,7 +170,7 @@ static void investigate_file_flags(void) {
     /* Get file flags */
     int flags = fcntl(fd, F_GETFL);
     if (flags >= 0) {
-        printf("fcntl(F_GETFL) = 0x%x\n", flags);
+        printf("fcntl(F_GETFL) = 0x%x\n", (unsigned int)flags);
         printf("  O_RDONLY: %s\n", (flags & O_ACCMODE) == O_RDONLY ? "yes" : "no");
         printf("  O_WRONLY: %s\n", (flags & O_ACCMODE) == O_WRONLY ? "yes" : "no");
         printf("  O_RDWR  : %s\n", (flags & O_ACCMODE) == O_RDWR ? "yes" : "no");
@@ -184,7 +184,7 @@ static void investigate_file_flags(void) {
     /* Check actual permissions via stat */
     struct stat st;
     if (stat(testfile, &st) == 0) {
-        printf("After stat: mode & 0777 = %03o\n", st.st_mode & 0777);
+        printf("After stat: mode & 0777 = %03o\n", (unsigned int)(st.st_mode & 0777));
     }
 
     unlink(testfile);

@@ -14,13 +14,9 @@
  */
 
 /* Feature test macros must come first */
-#ifdef __APPLE__
-    #define _DARWIN_C_SOURCE  /* Enable BSD extensions on macOS */
-#endif
 #ifdef __linux__
     #define _GNU_SOURCE  /* Enable GNU extensions on Linux */
 #endif
-#define _POSIX_C_SOURCE 200809L
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -44,6 +40,12 @@
 /* Include the generated bindings header */
 #include "../../build/c-bindings/sockets/imports.h"
 
+WASI_ABI_CHECK_PTR_LEN_TYPE(imports_string_t);
+WASI_ABI_CHECK_PTR_LEN_TYPE(imports_list_u8_t);
+WASI_ABI_CHECK_PTR_LEN_TYPE(imports_list_u32_t);
+WASI_ABI_CHECK_PTR_LEN_TYPE(wasi_sockets_udp_list_incoming_datagram_t);
+WASI_ABI_CHECK_PTR_LEN_TYPE(wasi_sockets_udp_list_outgoing_datagram_t);
+
 /* ============================================================================
  * macOS Compatibility
  * ============================================================================
@@ -58,7 +60,6 @@
 
 #ifndef SOCK_NONBLOCK
     #define SOCK_NONBLOCK 0
-    #define NEED_SOCKET_NONBLOCK_WORKAROUND
 #endif
 
 /* Set close-on-exec flag for a file descriptor */
@@ -1582,9 +1583,9 @@ bool wasi_sockets_udp_method_incoming_datagram_stream_receive(
 
     /* Allocate space for datagrams */
     size_t count = (max_results > 64) ? 64 : (size_t)max_results;
-    wasi_sockets_udp_incoming_datagram_t *datagrams = (wasi_sockets_udp_incoming_datagram_t *)
-        malloc(count * sizeof(wasi_sockets_udp_incoming_datagram_t));
-    if (!datagrams) {
+    wasi_sockets_udp_incoming_datagram_t *datagrams = NULL;
+    if (!wasi_cabi_alloc_list(count, sizeof(wasi_sockets_udp_incoming_datagram_t),
+                              WASI_ALIGNOF(wasi_sockets_udp_incoming_datagram_t), (void **)&datagrams)) {
         *err = WASI_SOCKETS_NETWORK_ERROR_CODE_OUT_OF_MEMORY;
         return false;
     }
@@ -1601,18 +1602,17 @@ bool wasi_sockets_udp_method_incoming_datagram_stream_receive(
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 break;  /* No more data available */
             }
-            free(datagrams);
+            wasi_cabi_free(datagrams, WASI_ALIGNOF(wasi_sockets_udp_incoming_datagram_t));
             *err = errno_to_socket_error(errno);
             return false;
         }
 
-        datagrams[received].data.ptr = (uint8_t *)malloc((size_t)n);
-        if (!datagrams[received].data.ptr) {
+        if (!wasi_cabi_alloc_list((size_t)n, 1, 1, (void **)&datagrams[received].data.ptr)) {
             /* Free previously allocated data */
             for (size_t i = 0; i < received; i++) {
-                free(datagrams[i].data.ptr);
+                wasi_cabi_free(datagrams[i].data.ptr, 1);
             }
-            free(datagrams);
+            wasi_cabi_free(datagrams, WASI_ALIGNOF(wasi_sockets_udp_incoming_datagram_t));
             *err = WASI_SOCKETS_NETWORK_ERROR_CODE_OUT_OF_MEMORY;
             return false;
         }
@@ -1766,6 +1766,7 @@ bool wasi_sockets_ip_name_lookup_resolve_addresses(
     }
 
     /* Convert name to C string */
+    wasi_utf8_validate_or_abort(name->ptr, name->len);
     char *hostname = (char *)malloc(name->len + 1);
     if (!hostname) {
         *err = WASI_SOCKETS_NETWORK_ERROR_CODE_OUT_OF_MEMORY;

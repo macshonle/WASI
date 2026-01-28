@@ -12,10 +12,6 @@
  *   - wasi:cli/terminal-*@0.2.0      - Terminal detection
  */
 
-#ifdef __APPLE__
-    #define _DARWIN_C_SOURCE  /* Enable BSD extensions on macOS */
-#endif
-#define _POSIX_C_SOURCE 200809L
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -29,6 +25,17 @@
 
 /* Include the generated bindings header */
 #include "../../build/c-bindings/cli/cli_imports.h"
+
+WASI_ABI_CHECK_PTR_LEN_TYPE(cli_imports_string_t);
+WASI_ABI_CHECK_PTR_LEN_TYPE(cli_imports_list_string_t);
+WASI_ABI_CHECK_PTR_LEN_TYPE(cli_imports_list_tuple2_string_string_t);
+
+/* Noreturn helper for exit implementation. */
+#if defined(__clang__) || defined(__GNUC__)
+#define WASI_NORETURN __attribute__((noreturn))
+#else
+#define WASI_NORETURN
+#endif
 
 /* External declarations from io.c for stream creation */
 extern int32_t wasi_io_streams_create_input_stream(int fd, bool owns_fd);
@@ -62,15 +69,18 @@ void wasi_cli_init(int argc, char **argv) {
 
 static void cli_string_dup(cli_imports_string_t *ret, const char *s) {
     ret->len = strlen(s);
-    ret->ptr = (uint8_t *)malloc(ret->len);
-    if (ret->ptr) {
-        memcpy(ret->ptr, s, ret->len);
+    wasi_utf8_validate_or_abort((const uint8_t *)s, ret->len);
+    if (!wasi_cabi_alloc_string(ret->len, &ret->ptr)) {
+        ret->ptr = NULL;
+        ret->len = 0;
+        return;
     }
+    if (ret->ptr) memcpy(ret->ptr, s, ret->len);
 }
 
 void cli_imports_string_free(cli_imports_string_t *ret) {
-    if (ret->len > 0 && ret->ptr) {
-        free(ret->ptr);
+    if (ret->ptr) {
+        wasi_cabi_free(ret->ptr, 1);
     }
     ret->ptr = NULL;
     ret->len = 0;
@@ -81,7 +91,7 @@ void cli_imports_list_string_free(cli_imports_list_string_t *ptr) {
         for (size_t i = 0; i < ptr->len; i++) {
             cli_imports_string_free(&ptr->ptr[i]);
         }
-        free(ptr->ptr);
+        wasi_cabi_free(ptr->ptr, WASI_ALIGNOF(cli_imports_string_t));
     }
     ptr->ptr = NULL;
     ptr->len = 0;
@@ -93,7 +103,7 @@ void cli_imports_list_tuple2_string_string_free(cli_imports_list_tuple2_string_s
             cli_imports_string_free(&ptr->ptr[i].f0);
             cli_imports_string_free(&ptr->ptr[i].f1);
         }
-        free(ptr->ptr);
+        wasi_cabi_free(ptr->ptr, WASI_ALIGNOF(cli_imports_tuple2_string_string_t));
     }
     ptr->ptr = NULL;
     ptr->len = 0;
@@ -111,6 +121,7 @@ void cli_imports_list_tuple2_string_string_free(cli_imports_list_tuple2_string_s
 void wasi_cli_environment_get_environment(cli_imports_list_tuple2_string_string_t *ret) {
     /* Count environment variables */
     size_t count = 0;
+    size_t idx = 0;
     for (char **env = environ; *env != NULL; env++) {
         count++;
     }
@@ -121,36 +132,39 @@ void wasi_cli_environment_get_environment(cli_imports_list_tuple2_string_string_
         return;
     }
 
-    ret->ptr = (cli_imports_tuple2_string_string_t *)malloc(
-        count * sizeof(cli_imports_tuple2_string_string_t));
-    if (!ret->ptr) {
+    if (!wasi_cabi_alloc_list(count, sizeof(cli_imports_tuple2_string_string_t),
+                              WASI_ALIGNOF(cli_imports_tuple2_string_string_t), (void **)&ret->ptr)) {
         ret->len = 0;
         return;
     }
 
-    size_t idx = 0;
     for (char **env = environ; *env != NULL && idx < count; env++) {
         char *eq = strchr(*env, '=');
         if (eq) {
+            size_t name_len;
+            char *value;
+            size_t value_len;
             /* Name is everything before '=' */
-            size_t name_len = (size_t)(eq - *env);
-            ret->ptr[idx].f0.ptr = (uint8_t *)malloc(name_len);
-            if (ret->ptr[idx].f0.ptr) {
-                memcpy(ret->ptr[idx].f0.ptr, *env, name_len);
-                ret->ptr[idx].f0.len = name_len;
-            } else {
+            name_len = (size_t)(eq - *env);
+            wasi_utf8_validate_or_abort((const uint8_t *)*env, name_len);
+            ret->ptr[idx].f0.len = name_len;
+            if (!wasi_cabi_alloc_string(name_len, &ret->ptr[idx].f0.ptr)) {
+                ret->ptr[idx].f0.ptr = NULL;
                 ret->ptr[idx].f0.len = 0;
+            } else if (ret->ptr[idx].f0.ptr) {
+                memcpy(ret->ptr[idx].f0.ptr, *env, name_len);
             }
 
             /* Value is everything after '=' */
-            char *value = eq + 1;
-            size_t value_len = strlen(value);
-            ret->ptr[idx].f1.ptr = (uint8_t *)malloc(value_len);
-            if (ret->ptr[idx].f1.ptr) {
-                memcpy(ret->ptr[idx].f1.ptr, value, value_len);
-                ret->ptr[idx].f1.len = value_len;
-            } else {
+            value = eq + 1;
+            value_len = strlen(value);
+            wasi_utf8_validate_or_abort((const uint8_t *)value, value_len);
+            ret->ptr[idx].f1.len = value_len;
+            if (!wasi_cabi_alloc_string(value_len, &ret->ptr[idx].f1.ptr)) {
+                ret->ptr[idx].f1.ptr = NULL;
                 ret->ptr[idx].f1.len = 0;
+            } else if (ret->ptr[idx].f1.ptr) {
+                memcpy(ret->ptr[idx].f1.ptr, value, value_len);
             }
 
             idx++;
@@ -170,9 +184,8 @@ void wasi_cli_environment_get_arguments(cli_imports_list_string_t *ret) {
         return;
     }
 
-    ret->ptr = (cli_imports_string_t *)malloc(
-        (size_t)saved_argc * sizeof(cli_imports_string_t));
-    if (!ret->ptr) {
+    if (!wasi_cabi_alloc_list((size_t)saved_argc, sizeof(cli_imports_string_t),
+                              WASI_ALIGNOF(cli_imports_string_t), (void **)&ret->ptr)) {
         ret->len = 0;
         return;
     }
@@ -191,6 +204,7 @@ void wasi_cli_environment_get_arguments(cli_imports_list_string_t *ret) {
 bool wasi_cli_environment_initial_cwd(cli_imports_string_t *ret) {
     char *cwd = getcwd(NULL, 0);
     if (cwd) {
+        wasi_utf8_validate_or_abort((const uint8_t *)cwd, strlen(cwd));
         cli_string_dup(ret, cwd);
         free(cwd);
         return true;
@@ -206,7 +220,7 @@ bool wasi_cli_environment_initial_cwd(cli_imports_string_t *ret) {
 /**
  * Exit the process with the given status.
  */
-void wasi_cli_exit_exit(wasi_cli_exit_result_void_void_t *status) {
+WASI_NORETURN void wasi_cli_exit_exit(wasi_cli_exit_result_void_void_t *status) {
     int code = status->is_err ? 1 : 0;
     _exit(code);
 }
@@ -264,8 +278,9 @@ static int terminal_handle_table[MAX_TERMINAL_HANDLES];
 static int next_terminal_handle = 1;
 
 static int32_t alloc_terminal_handle(int fd) {
+    int idx;
     if (next_terminal_handle >= MAX_TERMINAL_HANDLES) return -1;
-    int idx = next_terminal_handle++;
+    idx = next_terminal_handle++;
     terminal_handle_table[idx] = fd;
     return idx;
 }

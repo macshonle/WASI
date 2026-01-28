@@ -57,7 +57,7 @@ static int tests_failed = 0;
 
 static const char *TEST_ROOT = "capstone_testdir";
 
-int setup_test_environment(void) {
+static int setup_test_environment(void) {
     printf("\n=== Setting Up Test Environment ===\n");
 
     char path[256];
@@ -152,7 +152,7 @@ int setup_test_environment(void) {
  * Filesystem Tests
  * ============================================================================ */
 
-int test_stat_directory(void) {
+static int test_stat_directory(void) {
     struct stat st;
     char path[256];
     snprintf(path, sizeof(path), "%s", TEST_ROOT);
@@ -167,7 +167,7 @@ int test_stat_directory(void) {
     TEST_PASS("stat_directory");
 }
 
-int test_stat_file(void) {
+static int test_stat_file(void) {
     struct stat st;
     char path[256];
     snprintf(path, sizeof(path), "%s/file1.txt", TEST_ROOT);
@@ -181,7 +181,7 @@ int test_stat_file(void) {
     TEST_PASS("stat_file");
 }
 
-int test_read_directory(void) {
+static int test_read_directory(void) {
     char path[256];
     snprintf(path, sizeof(path), "%s", TEST_ROOT);
 
@@ -221,7 +221,7 @@ int test_read_directory(void) {
     TEST_PASS("read_directory");
 }
 
-int test_file_read_write(void) {
+static int test_file_read_write(void) {
     char path[256];
     snprintf(path, sizeof(path), "%s/readwrite_test.txt", TEST_ROOT);
 
@@ -253,7 +253,7 @@ int test_file_read_write(void) {
     TEST_PASS("file_read_write");
 }
 
-int test_file_seek(void) {
+static int test_file_seek(void) {
     char path[256];
     snprintf(path, sizeof(path), "%s/file1.txt", TEST_ROOT);
 
@@ -284,7 +284,7 @@ int test_file_seek(void) {
     TEST_PASS("file_seek");
 }
 
-int test_file_truncate(void) {
+static int test_file_truncate(void) {
     char path[256];
     snprintf(path, sizeof(path), "%s/truncate_test.txt", TEST_ROOT);
 
@@ -321,7 +321,7 @@ int test_file_truncate(void) {
  * Clock Tests
  * ============================================================================ */
 
-int test_clock_gettime_realtime(void) {
+static int test_clock_gettime_realtime(void) {
     struct timespec ts;
     int ret = clock_gettime(CLOCK_REALTIME, &ts);
     TEST_ASSERT(ret == 0, "clock_gettime CLOCK_REALTIME failed");
@@ -334,7 +334,7 @@ int test_clock_gettime_realtime(void) {
     TEST_PASS("clock_gettime_realtime");
 }
 
-int test_clock_gettime_monotonic(void) {
+static int test_clock_gettime_monotonic(void) {
     struct timespec ts1, ts2;
 
     int ret = clock_gettime(CLOCK_MONOTONIC, &ts1);
@@ -359,7 +359,7 @@ int test_clock_gettime_monotonic(void) {
     TEST_PASS("clock_gettime_monotonic");
 }
 
-int test_nanosleep(void) {
+static int test_nanosleep(void) {
     struct timespec req = {0, 10000000}; /* 10ms */
     struct timespec rem;
     struct timespec before, after;
@@ -389,7 +389,7 @@ int test_nanosleep(void) {
 
 extern char **environ;
 
-int test_environment_vars(void) {
+static int test_environment_vars(void) {
     /* Check if TEST_MODE env var is set */
     char *test_mode = getenv("TEST_MODE");
     if (test_mode != NULL) {
@@ -408,7 +408,7 @@ int test_environment_vars(void) {
     TEST_PASS("environment_vars");
 }
 
-int test_stdio_operations(void) {
+static int test_stdio_operations(void) {
     /* Test stdout */
     int n = fprintf(stdout, "    stdout test: OK\n");
     TEST_ASSERT(n > 0, "fprintf to stdout failed");
@@ -431,7 +431,7 @@ int test_stdio_operations(void) {
  * Combined Workflow Test
  * ============================================================================ */
 
-int test_combined_workflow(void) {
+static int test_combined_workflow(void) {
     char path[256];
 
     printf("    Running combined WASI workflow...\n");
@@ -448,19 +448,25 @@ int test_combined_workflow(void) {
     int len = snprintf(log_entry, sizeof(log_entry),
                        "Log entry at timestamp: %ld.%09ld\n",
                        (long)ts.tv_sec, ts.tv_nsec);
-    write(fd, log_entry, len);
+    if (len > 0) {
+        write(fd, log_entry, (size_t)len);
+    }
 
     /* 2. Add pseudo-random data entry */
     unsigned int rand_val = pseudo_random();
     len = snprintf(log_entry, sizeof(log_entry),
                    "Random value: %u\n", rand_val);
-    write(fd, log_entry, len);
+    if (len > 0) {
+        write(fd, log_entry, (size_t)len);
+    }
 
     /* 3. Add environment info */
     char *test_mode = getenv("TEST_MODE");
     len = snprintf(log_entry, sizeof(log_entry),
                    "Test mode: %s\n", test_mode ? test_mode : "native");
-    write(fd, log_entry, len);
+    if (len > 0) {
+        write(fd, log_entry, (size_t)len);
+    }
 
     close(fd);
 
@@ -499,7 +505,7 @@ int test_combined_workflow(void) {
  * Cleanup
  * ============================================================================ */
 
-void cleanup_test_environment(void) {
+static void cleanup_test_environment(void) {
     printf("\n=== Cleaning Up Test Environment ===\n");
 
     char path[256];

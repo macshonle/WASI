@@ -9,10 +9,6 @@
  *   - wasi:io/streams@0.2.0    - Input/output streams
  */
 
-#ifdef __APPLE__
-    #define _DARWIN_C_SOURCE  /* Enable BSD extensions on macOS (fsync, etc.) */
-#endif
-#define _POSIX_C_SOURCE 199309L
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -30,6 +26,11 @@
 
 /* Include the generated bindings header */
 #include "../../build/c-bindings/io/imports.h"
+
+WASI_ABI_CHECK_PTR_LEN_TYPE(imports_string_t);
+WASI_ABI_CHECK_PTR_LEN_TYPE(imports_list_u8_t);
+WASI_ABI_CHECK_PTR_LEN_TYPE(imports_list_u32_t);
+WASI_ABI_CHECK_PTR_LEN_TYPE(wasi_io_poll_list_borrow_pollable_t);
 
 /* ============================================================================
  * Handle Management
@@ -69,19 +70,22 @@ typedef struct {
     int fd;                    /* File descriptor (for FD-based pollables) */
     uint64_t when;             /* Target time (for timer pollables) */
     bool ready;                /* Cached ready state */
+    uint8_t _pad[7];           /* Explicit padding for 8-byte alignment */
 } wasi_pollable_resource_t;
 
 /* Stream resource */
 typedef struct {
+    uint64_t write_budget;     /* Bytes permitted for next write (output streams) */
     int fd;                    /* Underlying file descriptor */
     bool closed;               /* Whether stream is closed */
     bool owns_fd;              /* Whether we should close fd on drop */
-    uint64_t write_budget;     /* Bytes permitted for next write (output streams) */
     bool flush_pending;        /* Flush operation in progress */
+    uint8_t _pad[1];           /* Explicit padding for 8-byte alignment */
 } wasi_stream_resource_t;
 
 typedef struct {
     wasi_handle_type_t type;
+    uint8_t _pad[4];           /* Explicit padding for pointer alignment */
     union {
         wasi_error_resource_t *error;
         wasi_pollable_resource_t *pollable;
@@ -140,32 +144,44 @@ static void wasi_handle_free(int32_t handle) {
  */
 
 void imports_string_set(imports_string_t *ret, const char *s) {
-    /* Cast through uintptr_t to acknowledge intentional const-to-non-const.
-     * Caller is responsible for ensuring string is not modified through ret. */
-    ret->ptr = (uint8_t *)(uintptr_t)s;
     ret->len = strlen(s);
-}
-
-void imports_string_dup(imports_string_t *ret, const char *s) {
-    ret->len = strlen(s);
-    ret->ptr = (uint8_t *)malloc(ret->len);
+    wasi_utf8_validate_or_abort((const uint8_t *)s, ret->len);
+    if (!wasi_cabi_alloc_string(ret->len, &ret->ptr)) {
+        ret->ptr = NULL;
+        ret->len = 0;
+        return;
+    }
     if (ret->ptr) {
         memcpy(ret->ptr, s, ret->len);
     }
 }
 
+void imports_string_dup(imports_string_t *ret, const char *s) {
+    ret->len = strlen(s);
+    wasi_utf8_validate_or_abort((const uint8_t *)s, ret->len);
+    if (!wasi_cabi_alloc_string(ret->len, &ret->ptr)) {
+        ret->ptr = NULL;
+        ret->len = 0;
+        return;
+    }
+    if (ret->ptr) memcpy(ret->ptr, s, ret->len);
+}
+
 void imports_string_dup_n(imports_string_t *ret, const char *s, size_t len) {
     ret->len = len;
-    ret->ptr = (uint8_t *)malloc(len);
-    if (ret->ptr) {
-        memcpy(ret->ptr, s, len);
+    wasi_utf8_validate_or_abort((const uint8_t *)s, ret->len);
+    if (!wasi_cabi_alloc_string(ret->len, &ret->ptr)) {
+        ret->ptr = NULL;
+        ret->len = 0;
+        return;
     }
+    if (ret->ptr) memcpy(ret->ptr, s, len);
 }
 
 __attribute__((__weak__))
 void imports_string_free(imports_string_t *ret) {
-    if (ret->len > 0 && ret->ptr) {
-        free(ret->ptr);
+    if (ret->ptr) {
+        wasi_cabi_free(ret->ptr, 1);
     }
     ret->ptr = NULL;
     ret->len = 0;
@@ -178,24 +194,24 @@ void imports_string_free(imports_string_t *ret) {
 
 __attribute__((__weak__))
 void imports_list_u8_free(imports_list_u8_t *ptr) {
-    if (ptr->len > 0 && ptr->ptr != NULL) {
-        free(ptr->ptr);
+    if (ptr->ptr != NULL) {
+        wasi_cabi_free(ptr->ptr, 1);
     }
     ptr->ptr = NULL;
     ptr->len = 0;
 }
 
 void imports_list_u32_free(imports_list_u32_t *ptr) {
-    if (ptr->len > 0 && ptr->ptr != NULL) {
-        free(ptr->ptr);
+    if (ptr->ptr != NULL) {
+        wasi_cabi_free(ptr->ptr, WASI_ALIGNOF(uint32_t));
     }
     ptr->ptr = NULL;
     ptr->len = 0;
 }
 
 void wasi_io_poll_list_borrow_pollable_free(wasi_io_poll_list_borrow_pollable_t *ptr) {
-    if (ptr->len > 0 && ptr->ptr != NULL) {
-        free(ptr->ptr);
+    if (ptr->ptr != NULL) {
+        wasi_cabi_free(ptr->ptr, WASI_ALIGNOF(wasi_io_poll_borrow_pollable_t));
     }
     ptr->ptr = NULL;
     ptr->len = 0;
@@ -384,37 +400,37 @@ wasi_io_poll_borrow_pollable_t wasi_io_poll_borrow_pollable(wasi_io_poll_own_pol
 static bool wasi_pollable_check_ready(wasi_pollable_resource_t *pollable) {
     if (pollable->ready) return true;
 
-    switch (pollable->type) {
-        case POLLABLE_TYPE_ALWAYS_READY:
-            return true;
-
-        case POLLABLE_TYPE_FD_READ:
-        case POLLABLE_TYPE_FD_WRITE: {
-            struct pollfd pfd;
-            pfd.fd = pollable->fd;
-            pfd.events = (pollable->type == POLLABLE_TYPE_FD_READ) ? POLLIN : POLLOUT;
-            pfd.revents = 0;
-            int result = poll(&pfd, 1, 0);  /* Non-blocking */
-            if (result > 0 && pfd.revents != 0) {
-                pollable->ready = true;
-                return true;
-            }
-            return false;
-        }
-
-        case POLLABLE_TYPE_INSTANT:
-        case POLLABLE_TYPE_DURATION: {
-            uint64_t now = wasi_platform_clock_monotonic();
-            if (now >= pollable->when) {
-                pollable->ready = true;
-                return true;
-            }
-            return false;
-        }
-
-        default:
-            return false;
+    if (pollable->type == POLLABLE_TYPE_ALWAYS_READY) {
+        return true;
     }
+
+    if (pollable->type == POLLABLE_TYPE_FD_READ ||
+        pollable->type == POLLABLE_TYPE_FD_WRITE) {
+        struct pollfd pfd;
+        int result;
+
+        pfd.fd = pollable->fd;
+        pfd.events = (pollable->type == POLLABLE_TYPE_FD_READ) ? POLLIN : POLLOUT;
+        pfd.revents = 0;
+        result = poll(&pfd, 1, 0);  /* Non-blocking */
+        if (result > 0 && pfd.revents != 0) {
+            pollable->ready = true;
+            return true;
+        }
+        return false;
+    }
+
+    if (pollable->type == POLLABLE_TYPE_INSTANT ||
+        pollable->type == POLLABLE_TYPE_DURATION) {
+        uint64_t now = wasi_platform_clock_monotonic();
+        if (now >= pollable->when) {
+            pollable->ready = true;
+            return true;
+        }
+        return false;
+    }
+
+    return false;
 }
 
 /**
@@ -436,44 +452,47 @@ void wasi_io_poll_method_pollable_block(wasi_io_poll_borrow_pollable_t self) {
 
     if (pollable->ready) return;
 
-    switch (pollable->type) {
-        case POLLABLE_TYPE_ALWAYS_READY:
-            return;
-
-        case POLLABLE_TYPE_FD_READ:
-        case POLLABLE_TYPE_FD_WRITE: {
-            struct pollfd pfd;
-            pfd.fd = pollable->fd;
-            pfd.events = (pollable->type == POLLABLE_TYPE_FD_READ) ? POLLIN : POLLOUT;
-            pfd.revents = 0;
-            poll(&pfd, 1, -1);  /* Blocking */
-            pollable->ready = true;
-            return;
-        }
-
-        case POLLABLE_TYPE_INSTANT:
-        case POLLABLE_TYPE_DURATION: {
-            uint64_t now = wasi_platform_clock_monotonic();
-            if (now < pollable->when) {
-                uint64_t wait_ns = pollable->when - now;
-                struct timespec ts;
-                ts.tv_sec = (time_t)(wait_ns / 1000000000ULL);
-                ts.tv_nsec = (long)(wait_ns % 1000000000ULL);
-                nanosleep(&ts, NULL);
-            }
-            pollable->ready = true;
-            return;
-        }
-
-        default:
-            return;
+    if (pollable->type == POLLABLE_TYPE_ALWAYS_READY) {
+        return;
     }
+
+    if (pollable->type == POLLABLE_TYPE_FD_READ ||
+        pollable->type == POLLABLE_TYPE_FD_WRITE) {
+        struct pollfd pfd;
+        pfd.fd = pollable->fd;
+        pfd.events = (pollable->type == POLLABLE_TYPE_FD_READ) ? POLLIN : POLLOUT;
+        pfd.revents = 0;
+        poll(&pfd, 1, -1);  /* Blocking */
+        pollable->ready = true;
+        return;
+    }
+
+    if (pollable->type == POLLABLE_TYPE_INSTANT ||
+        pollable->type == POLLABLE_TYPE_DURATION) {
+        uint64_t now = wasi_platform_clock_monotonic();
+        if (now < pollable->when) {
+            uint64_t wait_ns = pollable->when - now;
+            struct timespec ts;
+            ts.tv_sec = (time_t)(wait_ns / 1000000000ULL);
+            ts.tv_nsec = (long)(wait_ns % 1000000000ULL);
+            nanosleep(&ts, NULL);
+        }
+        pollable->ready = true;
+        return;
+    }
+
+    return;
 }
 
 /**
  * Poll for completion on a set of pollables.
  */
 void wasi_io_poll_poll(wasi_io_poll_list_borrow_pollable_t *in, imports_list_u32_t *ret) {
+    uint32_t *ready_indices;
+    size_t num_ready;
+    int64_t min_timeout_ns;
+    int num_fd_pollables;
+
     if (in->len == 0) {
         ret->ptr = NULL;
         ret->len = 0;
@@ -481,16 +500,16 @@ void wasi_io_poll_poll(wasi_io_poll_list_borrow_pollable_t *in, imports_list_u32
     }
 
     /* First, check if any are already ready */
-    uint32_t *ready_indices = (uint32_t *)malloc(in->len * sizeof(uint32_t));
+    ready_indices = (uint32_t *)malloc(in->len * sizeof(uint32_t));
     if (!ready_indices) {
         ret->ptr = NULL;
         ret->len = 0;
         return;
     }
 
-    size_t num_ready = 0;
-    int64_t min_timeout_ns = -1;  /* -1 = infinite */
-    int num_fd_pollables = 0;
+    num_ready = 0;
+    min_timeout_ns = -1;  /* -1 = infinite */
+    num_fd_pollables = 0;
 
     /* First pass: count FD pollables and check for ready ones */
     for (size_t i = 0; i < in->len; i++) {
@@ -519,21 +538,28 @@ void wasi_io_poll_poll(wasi_io_poll_list_borrow_pollable_t *in, imports_list_u32
 
     /* If any are ready, return immediately */
     if (num_ready > 0) {
-        ret->ptr = (uint32_t *)malloc(num_ready * sizeof(uint32_t));
-        if (ret->ptr) {
-            memcpy(ret->ptr, ready_indices, num_ready * sizeof(uint32_t));
-            ret->len = num_ready;
-        } else {
+        if (!wasi_cabi_alloc_list(num_ready, sizeof(uint32_t), WASI_ALIGNOF(uint32_t), (void **)&ret->ptr)) {
+            ret->ptr = NULL;
             ret->len = 0;
+            free(ready_indices);
+            return;
         }
+        memcpy(ret->ptr, ready_indices, num_ready * sizeof(uint32_t));
+        ret->len = num_ready;
         free(ready_indices);
         return;
     }
 
     /* Build poll array for FD pollables */
     if (num_fd_pollables > 0) {
-        struct pollfd *pfds = (struct pollfd *)malloc((size_t)num_fd_pollables * sizeof(struct pollfd));
-        size_t *pfd_indices = (size_t *)malloc((size_t)num_fd_pollables * sizeof(size_t));
+        struct pollfd *pfds;
+        size_t *pfd_indices;
+        int pfd_count;
+        int timeout_ms;
+        int result;
+
+        pfds = (struct pollfd *)malloc((size_t)num_fd_pollables * sizeof(struct pollfd));
+        pfd_indices = (size_t *)malloc((size_t)num_fd_pollables * sizeof(size_t));
         if (!pfds || !pfd_indices) {
             free(pfds);
             free(pfd_indices);
@@ -543,7 +569,7 @@ void wasi_io_poll_poll(wasi_io_poll_list_borrow_pollable_t *in, imports_list_u32
             return;
         }
 
-        int pfd_count = 0;
+        pfd_count = 0;
         for (size_t i = 0; i < in->len; i++) {
             wasi_pollable_resource_t *pollable = (wasi_pollable_resource_t *)wasi_handle_get(
                 in->ptr[i].__handle, HANDLE_TYPE_POLLABLE);
@@ -559,7 +585,7 @@ void wasi_io_poll_poll(wasi_io_poll_list_borrow_pollable_t *in, imports_list_u32
         }
 
         /* Calculate timeout in milliseconds */
-        int timeout_ms = -1;
+        timeout_ms = -1;
         if (min_timeout_ns >= 0) {
             timeout_ms = (int)(min_timeout_ns / 1000000);
             if (timeout_ms == 0 && min_timeout_ns > 0) {
@@ -567,13 +593,14 @@ void wasi_io_poll_poll(wasi_io_poll_list_borrow_pollable_t *in, imports_list_u32
             }
         }
 
-        int result = poll(pfds, (nfds_t)pfd_count, timeout_ms);
+        result = poll(pfds, (nfds_t)pfd_count, timeout_ms);
 
         if (result > 0) {
             for (int i = 0; i < pfd_count; i++) {
+                wasi_pollable_resource_t *pollable;
                 if (pfds[i].revents != 0) {
                     ready_indices[num_ready++] = (uint32_t)pfd_indices[i];
-                    wasi_pollable_resource_t *pollable = (wasi_pollable_resource_t *)wasi_handle_get(
+                    pollable = (wasi_pollable_resource_t *)wasi_handle_get(
                         in->ptr[pfd_indices[i]].__handle, HANDLE_TYPE_POLLABLE);
                     if (pollable) pollable->ready = true;
                 }
@@ -617,13 +644,14 @@ void wasi_io_poll_poll(wasi_io_poll_list_borrow_pollable_t *in, imports_list_u32
 
     /* Return ready indices */
     if (num_ready > 0) {
-        ret->ptr = (uint32_t *)malloc(num_ready * sizeof(uint32_t));
-        if (ret->ptr) {
-            memcpy(ret->ptr, ready_indices, num_ready * sizeof(uint32_t));
-            ret->len = num_ready;
-        } else {
+        if (!wasi_cabi_alloc_list(num_ready, sizeof(uint32_t), WASI_ALIGNOF(uint32_t), (void **)&ret->ptr)) {
+            ret->ptr = NULL;
             ret->len = 0;
+            free(ready_indices);
+            return;
         }
+        memcpy(ret->ptr, ready_indices, num_ready * sizeof(uint32_t));
+        ret->len = num_ready;
     } else {
         ret->ptr = NULL;
         ret->len = 0;
@@ -721,8 +749,10 @@ static void set_stream_error_closed(wasi_io_streams_stream_error_t *err) {
 }
 
 static void set_stream_error_failed(wasi_io_streams_stream_error_t *err, const char *message) {
+    int32_t error_handle;
+
     err->tag = WASI_IO_STREAMS_STREAM_ERROR_LAST_OPERATION_FAILED;
-    int32_t error_handle = wasi_io_error_create(message);
+    error_handle = wasi_io_error_create(message);
     err->val.last_operation_failed = (wasi_io_streams_own_error_t){ error_handle };
 }
 
@@ -735,7 +765,14 @@ bool wasi_io_streams_method_input_stream_read(
     imports_list_u8_t *ret,
     wasi_io_streams_stream_error_t *err
 ) {
-    wasi_stream_resource_t *stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_INPUT_STREAM);
+    wasi_stream_resource_t *stream;
+    int flags;
+    bool was_blocking;
+    size_t to_read;
+    uint8_t *buf;
+    ssize_t nread;
+
+    stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_INPUT_STREAM);
     if (!stream) {
         set_stream_error_closed(err);
         return false;
@@ -753,22 +790,22 @@ bool wasi_io_streams_method_input_stream_read(
     }
 
     /* Set non-blocking */
-    int flags = fcntl(stream->fd, F_GETFL, 0);
-    bool was_blocking = !(flags & O_NONBLOCK);
+    flags = fcntl(stream->fd, F_GETFL, 0);
+    was_blocking = !(flags & O_NONBLOCK);
     if (was_blocking) {
         fcntl(stream->fd, F_SETFL, flags | O_NONBLOCK);
     }
 
     /* Allocate buffer */
-    size_t to_read = (len > 65536) ? 65536 : (size_t)len;
-    uint8_t *buf = (uint8_t *)malloc(to_read);
+    to_read = (len > 65536) ? 65536 : (size_t)len;
+    buf = (uint8_t *)wasi_cabi_alloc(1, to_read);
     if (!buf) {
         if (was_blocking) fcntl(stream->fd, F_SETFL, flags);
         set_stream_error_failed(err, "memory allocation failed");
         return false;
     }
 
-    ssize_t nread = read(stream->fd, buf, to_read);
+    nread = read(stream->fd, buf, to_read);
 
     /* Restore blocking mode */
     if (was_blocking) {
@@ -776,7 +813,7 @@ bool wasi_io_streams_method_input_stream_read(
     }
 
     if (nread < 0) {
-        free(buf);
+        wasi_cabi_free(buf, 1);
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             /* No data available, return empty list */
             ret->ptr = NULL;
@@ -789,12 +826,15 @@ bool wasi_io_streams_method_input_stream_read(
 
     if (nread == 0) {
         /* EOF */
-        free(buf);
+        wasi_cabi_free(buf, 1);
         stream->closed = true;
         set_stream_error_closed(err);
         return false;
     }
 
+    if ((size_t)nread < to_read) {
+        buf = (uint8_t *)cabi_realloc(buf, to_read, 1, (size_t)nread);
+    }
     ret->ptr = buf;
     ret->len = (size_t)nread;
     return true;
@@ -809,7 +849,12 @@ bool wasi_io_streams_method_input_stream_blocking_read(
     imports_list_u8_t *ret,
     wasi_io_streams_stream_error_t *err
 ) {
-    wasi_stream_resource_t *stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_INPUT_STREAM);
+    wasi_stream_resource_t *stream;
+    size_t to_read;
+    uint8_t *buf;
+    ssize_t nread;
+
+    stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_INPUT_STREAM);
     if (!stream) {
         set_stream_error_closed(err);
         return false;
@@ -827,29 +872,32 @@ bool wasi_io_streams_method_input_stream_blocking_read(
     }
 
     /* Allocate buffer */
-    size_t to_read = (len > 65536) ? 65536 : (size_t)len;
-    uint8_t *buf = (uint8_t *)malloc(to_read);
+    to_read = (len > 65536) ? 65536 : (size_t)len;
+    buf = (uint8_t *)wasi_cabi_alloc(1, to_read);
     if (!buf) {
         set_stream_error_failed(err, "memory allocation failed");
         return false;
     }
 
-    ssize_t nread = read(stream->fd, buf, to_read);
+    nread = read(stream->fd, buf, to_read);
 
     if (nread < 0) {
-        free(buf);
+        wasi_cabi_free(buf, 1);
         set_stream_error_failed(err, strerror(errno));
         return false;
     }
 
     if (nread == 0) {
         /* EOF */
-        free(buf);
+        wasi_cabi_free(buf, 1);
         stream->closed = true;
         set_stream_error_closed(err);
         return false;
     }
 
+    if ((size_t)nread < to_read) {
+        buf = (uint8_t *)cabi_realloc(buf, to_read, 1, (size_t)nread);
+    }
     ret->ptr = buf;
     ret->len = (size_t)nread;
     return true;
@@ -864,7 +912,17 @@ bool wasi_io_streams_method_input_stream_skip(
     uint64_t *ret,
     wasi_io_streams_stream_error_t *err
 ) {
-    wasi_stream_resource_t *stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_INPUT_STREAM);
+    wasi_stream_resource_t *stream;
+    off_t cur;
+    off_t end;
+    off_t available;
+    off_t to_skip;
+    uint8_t buf[4096];
+    uint64_t skipped;
+    size_t to_read;
+    ssize_t nread;
+
+    stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_INPUT_STREAM);
     if (!stream) {
         set_stream_error_closed(err);
         return false;
@@ -876,12 +934,12 @@ bool wasi_io_streams_method_input_stream_skip(
     }
 
     /* Try lseek first (for seekable streams) */
-    off_t cur = lseek(stream->fd, 0, SEEK_CUR);
+    cur = lseek(stream->fd, 0, SEEK_CUR);
     if (cur >= 0) {
-        off_t end = lseek(stream->fd, 0, SEEK_END);
+        end = lseek(stream->fd, 0, SEEK_END);
         if (end >= 0) {
-            off_t available = end - cur;
-            off_t to_skip = (off_t)len;
+            available = end - cur;
+            to_skip = (off_t)len;
             if (to_skip > available) to_skip = available;
             lseek(stream->fd, cur + to_skip, SEEK_SET);
             *ret = (uint64_t)to_skip;
@@ -891,11 +949,10 @@ bool wasi_io_streams_method_input_stream_skip(
     }
 
     /* Fall back to reading and discarding */
-    uint8_t buf[4096];
-    uint64_t skipped = 0;
+    skipped = 0;
     while (skipped < len) {
-        size_t to_read = (len - skipped > sizeof(buf)) ? sizeof(buf) : (size_t)(len - skipped);
-        ssize_t nread = read(stream->fd, buf, to_read);
+        to_read = (len - skipped > sizeof(buf)) ? sizeof(buf) : (size_t)(len - skipped);
+        nread = read(stream->fd, buf, to_read);
         if (nread < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) break;
             set_stream_error_failed(err, strerror(errno));
@@ -928,13 +985,16 @@ bool wasi_io_streams_method_input_stream_blocking_skip(
 wasi_io_streams_own_pollable_t wasi_io_streams_method_input_stream_subscribe(
     wasi_io_streams_borrow_input_stream_t self
 ) {
-    wasi_stream_resource_t *stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_INPUT_STREAM);
+    wasi_stream_resource_t *stream;
+    int32_t handle;
+
+    stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_INPUT_STREAM);
     if (!stream || stream->closed) {
         /* Closed streams are always ready */
         return (wasi_io_streams_own_pollable_t){ wasi_io_poll_create_ready_pollable() };
     }
 
-    int32_t handle = wasi_io_poll_create_fd_pollable(stream->fd, false);
+    handle = wasi_io_poll_create_fd_pollable(stream->fd, false);
     return (wasi_io_streams_own_pollable_t){ handle };
 }
 
@@ -974,7 +1034,12 @@ bool wasi_io_streams_method_output_stream_write(
     imports_list_u8_t *contents,
     wasi_io_streams_stream_error_t *err
 ) {
-    wasi_stream_resource_t *stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_OUTPUT_STREAM);
+    wasi_stream_resource_t *stream;
+    int flags;
+    bool was_blocking;
+    ssize_t nwritten;
+
+    stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_OUTPUT_STREAM);
     if (!stream) {
         set_stream_error_closed(err);
         return false;
@@ -990,13 +1055,13 @@ bool wasi_io_streams_method_output_stream_write(
     }
 
     /* Set non-blocking */
-    int flags = fcntl(stream->fd, F_GETFL, 0);
-    bool was_blocking = !(flags & O_NONBLOCK);
+    flags = fcntl(stream->fd, F_GETFL, 0);
+    was_blocking = !(flags & O_NONBLOCK);
     if (was_blocking) {
         fcntl(stream->fd, F_SETFL, flags | O_NONBLOCK);
     }
 
-    ssize_t nwritten = write(stream->fd, contents->ptr, contents->len);
+    nwritten = write(stream->fd, contents->ptr, contents->len);
 
     if (was_blocking) {
         fcntl(stream->fd, F_SETFL, flags);
@@ -1023,7 +1088,10 @@ bool wasi_io_streams_method_output_stream_blocking_write_and_flush(
     imports_list_u8_t *contents,
     wasi_io_streams_stream_error_t *err
 ) {
-    wasi_stream_resource_t *stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_OUTPUT_STREAM);
+    wasi_stream_resource_t *stream;
+    size_t written;
+
+    stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_OUTPUT_STREAM);
     if (!stream) {
         set_stream_error_closed(err);
         return false;
@@ -1035,7 +1103,7 @@ bool wasi_io_streams_method_output_stream_blocking_write_and_flush(
     }
 
     /* Write all data (blocking) */
-    size_t written = 0;
+    written = 0;
     while (written < contents->len) {
         ssize_t n = write(stream->fd, contents->ptr + written, contents->len - written);
         if (n < 0) {
@@ -1113,12 +1181,15 @@ bool wasi_io_streams_method_output_stream_blocking_flush(
 wasi_io_streams_own_pollable_t wasi_io_streams_method_output_stream_subscribe(
     wasi_io_streams_borrow_output_stream_t self
 ) {
-    wasi_stream_resource_t *stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_OUTPUT_STREAM);
+    wasi_stream_resource_t *stream;
+    int32_t handle;
+
+    stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_OUTPUT_STREAM);
     if (!stream || stream->closed) {
         return (wasi_io_streams_own_pollable_t){ wasi_io_poll_create_ready_pollable() };
     }
 
-    int32_t handle = wasi_io_poll_create_fd_pollable(stream->fd, true);
+    handle = wasi_io_poll_create_fd_pollable(stream->fd, true);
     return (wasi_io_streams_own_pollable_t){ handle };
 }
 
@@ -1130,7 +1201,11 @@ bool wasi_io_streams_method_output_stream_write_zeroes(
     uint64_t len,
     wasi_io_streams_stream_error_t *err
 ) {
-    wasi_stream_resource_t *stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_OUTPUT_STREAM);
+    wasi_stream_resource_t *stream;
+    uint8_t zeros[4096] = {0};
+    uint64_t written;
+
+    stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_OUTPUT_STREAM);
     if (!stream) {
         set_stream_error_closed(err);
         return false;
@@ -1146,8 +1221,7 @@ bool wasi_io_streams_method_output_stream_write_zeroes(
     }
 
     /* Write zeroes */
-    uint8_t zeros[4096] = {0};
-    uint64_t written = 0;
+    written = 0;
     while (written < len) {
         size_t to_write = (len - written > sizeof(zeros)) ? sizeof(zeros) : (size_t)(len - written);
         ssize_t n = write(stream->fd, zeros, to_write);
@@ -1171,7 +1245,11 @@ bool wasi_io_streams_method_output_stream_blocking_write_zeroes_and_flush(
     uint64_t len,
     wasi_io_streams_stream_error_t *err
 ) {
-    wasi_stream_resource_t *stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_OUTPUT_STREAM);
+    wasi_stream_resource_t *stream;
+    uint8_t zeros[4096] = {0};
+    uint64_t written;
+
+    stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_OUTPUT_STREAM);
     if (!stream) {
         set_stream_error_closed(err);
         return false;
@@ -1183,8 +1261,7 @@ bool wasi_io_streams_method_output_stream_blocking_write_zeroes_and_flush(
     }
 
     /* Write zeroes (blocking) */
-    uint8_t zeros[4096] = {0};
-    uint64_t written = 0;
+    written = 0;
     while (written < len) {
         size_t to_write = (len - written > sizeof(zeros)) ? sizeof(zeros) : (size_t)(len - written);
         ssize_t n = write(stream->fd, zeros, to_write);
@@ -1212,8 +1289,17 @@ bool wasi_io_streams_method_output_stream_splice(
     uint64_t *ret,
     wasi_io_streams_stream_error_t *err
 ) {
-    wasi_stream_resource_t *out_stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_OUTPUT_STREAM);
-    wasi_stream_resource_t *in_stream = (wasi_stream_resource_t *)wasi_handle_get(src.__handle, HANDLE_TYPE_INPUT_STREAM);
+    wasi_stream_resource_t *out_stream;
+    wasi_stream_resource_t *in_stream;
+    uint8_t buf[4096];
+    size_t to_transfer;
+    int flags;
+    bool was_blocking;
+    ssize_t nread;
+    ssize_t nwritten;
+
+    out_stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_OUTPUT_STREAM);
+    in_stream = (wasi_stream_resource_t *)wasi_handle_get(src.__handle, HANDLE_TYPE_INPUT_STREAM);
 
     if (!out_stream || out_stream->closed) {
         set_stream_error_closed(err);
@@ -1226,17 +1312,16 @@ bool wasi_io_streams_method_output_stream_splice(
     }
 
     /* Simple splice implementation: read then write */
-    uint8_t buf[4096];
-    size_t to_transfer = (len > sizeof(buf)) ? sizeof(buf) : (size_t)len;
+    to_transfer = (len > sizeof(buf)) ? sizeof(buf) : (size_t)len;
 
     /* Set non-blocking on input */
-    int flags = fcntl(in_stream->fd, F_GETFL, 0);
-    bool was_blocking = !(flags & O_NONBLOCK);
+    flags = fcntl(in_stream->fd, F_GETFL, 0);
+    was_blocking = !(flags & O_NONBLOCK);
     if (was_blocking) {
         fcntl(in_stream->fd, F_SETFL, flags | O_NONBLOCK);
     }
 
-    ssize_t nread = read(in_stream->fd, buf, to_transfer);
+    nread = read(in_stream->fd, buf, to_transfer);
 
     if (was_blocking) {
         fcntl(in_stream->fd, F_SETFL, flags);
@@ -1257,7 +1342,7 @@ bool wasi_io_streams_method_output_stream_splice(
     }
 
     /* Write to output */
-    ssize_t nwritten = write(out_stream->fd, buf, (size_t)nread);
+    nwritten = write(out_stream->fd, buf, (size_t)nread);
     if (nwritten < 0) {
         set_stream_error_failed(err, strerror(errno));
         return false;
@@ -1277,8 +1362,15 @@ bool wasi_io_streams_method_output_stream_blocking_splice(
     uint64_t *ret,
     wasi_io_streams_stream_error_t *err
 ) {
-    wasi_stream_resource_t *out_stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_OUTPUT_STREAM);
-    wasi_stream_resource_t *in_stream = (wasi_stream_resource_t *)wasi_handle_get(src.__handle, HANDLE_TYPE_INPUT_STREAM);
+    wasi_stream_resource_t *out_stream;
+    wasi_stream_resource_t *in_stream;
+    uint8_t buf[4096];
+    size_t to_transfer;
+    ssize_t nread;
+    size_t written;
+
+    out_stream = (wasi_stream_resource_t *)wasi_handle_get(self.__handle, HANDLE_TYPE_OUTPUT_STREAM);
+    in_stream = (wasi_stream_resource_t *)wasi_handle_get(src.__handle, HANDLE_TYPE_INPUT_STREAM);
 
     if (!out_stream || out_stream->closed) {
         set_stream_error_closed(err);
@@ -1291,10 +1383,9 @@ bool wasi_io_streams_method_output_stream_blocking_splice(
     }
 
     /* Blocking splice: read then write */
-    uint8_t buf[4096];
-    size_t to_transfer = (len > sizeof(buf)) ? sizeof(buf) : (size_t)len;
+    to_transfer = (len > sizeof(buf)) ? sizeof(buf) : (size_t)len;
 
-    ssize_t nread = read(in_stream->fd, buf, to_transfer);
+    nread = read(in_stream->fd, buf, to_transfer);
     if (nread < 0) {
         set_stream_error_failed(err, strerror(errno));
         return false;
@@ -1306,7 +1397,7 @@ bool wasi_io_streams_method_output_stream_blocking_splice(
     }
 
     /* Write all data */
-    size_t written = 0;
+    written = 0;
     while (written < (size_t)nread) {
         ssize_t n = write(out_stream->fd, buf + written, (size_t)nread - written);
         if (n < 0) {

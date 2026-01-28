@@ -8,10 +8,6 @@
  *   - wasi:clocks/wall-clock@0.2.0       - Wall clock time
  */
 
-#ifdef __APPLE__
-    #define _DARWIN_C_SOURCE  /* Enable BSD extensions on macOS */
-#endif
-#define _POSIX_C_SOURCE 199309L
 
 #include <stdint.h>
 #include <stdbool.h>

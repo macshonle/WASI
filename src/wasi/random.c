@@ -21,14 +21,16 @@
 /* Include the generated bindings header */
 #include "../../build/c-bindings/random/imports.h"
 
+WASI_ABI_CHECK_PTR_LEN_TYPE(imports_list_u8_t);
+
 /* ============================================================================
  * Helper: imports_list_u8_free
  * ============================================================================
  */
 __attribute__((__weak__))
 void imports_list_u8_free(imports_list_u8_t *ptr) {
-    if (ptr->len > 0 && ptr->ptr != NULL) {
-        free(ptr->ptr);
+    if (ptr->ptr != NULL) {
+        wasi_cabi_free(ptr->ptr, 1);
     }
     ptr->ptr = NULL;
     ptr->len = 0;
@@ -49,8 +51,12 @@ void wasi_random_random_get_random_bytes(uint64_t len, imports_list_u8_t *ret) {
         return;
     }
 
-    ret->ptr = (uint8_t *)malloc((size_t)len);
-    if (ret->ptr == NULL) {
+    if (len > UINT32_MAX) {
+        ret->ptr = NULL;
+        ret->len = 0;
+        return;
+    }
+    if (!wasi_cabi_alloc_list((size_t)len, 1, 1, (void **)&ret->ptr)) {
         ret->len = 0;
         return;
     }
@@ -124,8 +130,12 @@ void wasi_random_insecure_get_insecure_random_bytes(uint64_t len, imports_list_u
         return;
     }
 
-    ret->ptr = (uint8_t *)malloc((size_t)len);
-    if (ret->ptr == NULL) {
+    if (len > UINT32_MAX) {
+        ret->ptr = NULL;
+        ret->len = 0;
+        return;
+    }
+    if (!wasi_cabi_alloc_list((size_t)len, 1, 1, (void **)&ret->ptr)) {
         ret->len = 0;
         return;
     }

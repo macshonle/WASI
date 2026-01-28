@@ -48,7 +48,8 @@ static void test_stat_cwd(void) {
     int ret = stat(".", &st);
     TEST_ASSERT(ret == 0, "stat(.) failed");
     TEST_ASSERT(S_ISDIR(st.st_mode), ". is not a directory");
-    printf("    . inode: %lu, mode: %o\n", (unsigned long)st.st_ino, st.st_mode & 0777);
+    printf("    . inode: %lu, mode: %o\n",
+           (unsigned long)st.st_ino, (unsigned int)(st.st_mode & 0777));
     TEST_PASS("stat_cwd");
 }
 
